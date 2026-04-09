@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 type Project = {
@@ -12,222 +13,305 @@ type Project = {
   shape: string | null;
   notes: string | null;
   floorplan_file_url: string | null;
+  floorplan_file_name: string | null;
   created_at: string;
 };
 
-type SortOption = "newest" | "oldest" | "name";
-
-export default function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
+export default function ProjectDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [searchKeyword, setSearchKeyword] = useState("");
-  const [sortOption, setSortOption] = useState<SortOption>("newest");
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const projectId = Number(params?.id);
 
   useEffect(() => {
-    fetchProjects();
-  }, []);
+    if (!projectId || Number.isNaN(projectId)) {
+      setErrorMessage("올바른 프로젝트 ID가 아닙니다.");
+      setLoading(false);
+      return;
+    }
 
-  const fetchProjects = async () => {
+    fetchProject(projectId);
+  }, [projectId]);
+
+  const fetchProject = async (id: number) => {
     setLoading(true);
     setErrorMessage("");
 
     const { data, error } = await supabase
       .from("office_projects")
       .select(
-        "id, project_name, area, headcount, shape, notes, floorplan_file_url, created_at"
+        "id, project_name, area, headcount, shape, notes, floorplan_file_url, floorplan_file_name, created_at"
       )
-      .order("created_at", { ascending: false });
+      .eq("id", id)
+      .single();
 
     if (error) {
-      setErrorMessage(error.message || "프로젝트 목록을 불러오지 못했습니다.");
-      setProjects([]);
+      setErrorMessage(error.message || "프로젝트 상세 정보를 불러오지 못했습니다.");
+      setProject(null);
     } else {
-      setProjects((data as Project[]) ?? []);
+      setProject(data as Project);
     }
 
     setLoading(false);
   };
 
-  const handleDelete = async (projectId: number) => {
+  const handleDelete = async () => {
+    if (!project) return;
+
     const confirmed = window.confirm("이 프로젝트를 삭제할까요?");
     if (!confirmed) return;
 
-    setDeletingId(projectId);
+    setDeleting(true);
     setErrorMessage("");
 
     const { error } = await supabase
       .from("office_projects")
       .delete()
-      .eq("id", projectId);
+      .eq("id", project.id);
 
     if (error) {
       setErrorMessage(error.message || "프로젝트 삭제 중 오류가 발생했습니다.");
-      setDeletingId(null);
+      setDeleting(false);
       return;
     }
 
-    setProjects((prev) => prev.filter((project) => project.id !== projectId));
-    setDeletingId(null);
+    alert("프로젝트가 삭제되었습니다.");
+    router.push("/projects");
+    router.refresh();
   };
 
-  const filteredProjects = useMemo(() => {
-    const keyword = searchKeyword.trim().toLowerCase();
+  const fileType = useMemo(() => {
+    const fileUrl = project?.floorplan_file_url?.toLowerCase() ?? "";
+    const fileName = project?.floorplan_file_name?.toLowerCase() ?? "";
 
-    const filtered = projects.filter((project) => {
-      const name = project.project_name?.toLowerCase() ?? "";
-      const shape = project.shape?.toLowerCase() ?? "";
-      const notes = project.notes?.toLowerCase() ?? "";
+    const target = `${fileUrl} ${fileName}`;
 
-      return (
-        !keyword ||
-        name.includes(keyword) ||
-        shape.includes(keyword) ||
-        notes.includes(keyword)
-      );
-    });
+    if (
+      target.includes(".png") ||
+      target.includes(".jpg") ||
+      target.includes(".jpeg") ||
+      target.includes(".webp")
+    ) {
+      return "image";
+    }
 
-    const sorted = [...filtered].sort((a, b) => {
-      if (sortOption === "newest") {
-        return (
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-      }
+    if (target.includes(".pdf")) {
+      return "pdf";
+    }
 
-      if (sortOption === "oldest") {
-        return (
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        );
-      }
+    return "unknown";
+  }, [project]);
 
-      return a.project_name.localeCompare(b.project_name, "ko");
-    });
+  if (loading) {
+    return (
+      <main style={pageStyle}>
+        <div style={containerStyle}>
+          <div style={emptyBoxStyle}>프로젝트 상세 정보를 불러오는 중...</div>
+        </div>
+      </main>
+    );
+  }
 
-    return sorted;
-  }, [projects, searchKeyword, sortOption]);
+  if (errorMessage) {
+    return (
+      <main style={pageStyle}>
+        <div style={containerStyle}>
+          <div style={errorBoxStyle}>{errorMessage}</div>
+          <div style={{ marginTop: "16px" }}>
+            <Link href="/projects" style={secondaryButtonStyle}>
+              목록으로 돌아가기
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (!project) {
+    return (
+      <main style={pageStyle}>
+        <div style={containerStyle}>
+          <div style={emptyBoxStyle}>프로젝트 정보를 찾을 수 없어요.</div>
+          <div style={{ marginTop: "16px" }}>
+            <Link href="/projects" style={secondaryButtonStyle}>
+              목록으로 돌아가기
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main style={pageStyle}>
       <div style={containerStyle}>
         <div style={topBarStyle}>
           <div>
-            <p style={eyebrowStyle}>PROJECTS</p>
-            <h1 style={titleStyle}>프로젝트 목록</h1>
+            <p style={eyebrowStyle}>PROJECT DETAIL</p>
+            <h1 style={titleStyle}>{project.project_name}</h1>
             <p style={descriptionStyle}>
-              저장된 프로젝트를 확인하고 상세, 수정, 삭제를 할 수 있어요.
+              저장된 프로젝트 정보와 업로드된 도면 파일을 확인할 수 있어요.
             </p>
           </div>
 
-          <Link href="/projects/new" style={primaryButtonStyle}>
-            + 새 프로젝트 만들기
-          </Link>
-        </div>
-
-        <div style={toolbarStyle}>
-          <input
-            type="text"
-            placeholder="프로젝트명 / 공간 형태 / 메모 검색"
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            style={searchInputStyle}
-          />
-
-          <select
-            value={sortOption}
-            onChange={(e) => setSortOption(e.target.value as SortOption)}
-            style={selectStyle}
-          >
-            <option value="newest">최신순</option>
-            <option value="oldest">오래된순</option>
-            <option value="name">이름순</option>
-          </select>
-        </div>
-
-        <div style={summaryRowStyle}>
-          <span style={summaryBadgeStyle}>
-            총 {filteredProjects.length}개 프로젝트
-          </span>
-        </div>
-
-        {loading ? (
-          <div style={emptyBoxStyle}>프로젝트 목록을 불러오는 중...</div>
-        ) : errorMessage ? (
-          <div style={errorBoxStyle}>{errorMessage}</div>
-        ) : filteredProjects.length === 0 ? (
-          <div style={emptyBoxStyle}>
-            저장된 프로젝트가 없어요. 새 프로젝트를 만들어 보세요.
+          <div style={topButtonRowStyle}>
+            <Link href="/projects" style={secondaryButtonStyle}>
+              목록으로
+            </Link>
+            <Link
+              href={`/projects/${project.id}/edit`}
+              style={secondaryButtonStyle}
+            >
+              수정
+            </Link>
+            <Link
+              href={`/projects/${project.id}/layout3d`}
+              style={primaryButtonStyle}
+            >
+              3D 배치도면 만들기
+            </Link>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              style={dangerButtonStyle}
+            >
+              {deleting ? "삭제 중..." : "삭제"}
+            </button>
           </div>
-        ) : (
-          <div style={gridStyle}>
-            {filteredProjects.map((project) => (
-              <article key={project.id} style={cardStyle}>
-                <div style={cardHeaderStyle}>
-                  <div>
-                    <h2 style={cardTitleStyle}>{project.project_name}</h2>
-                    <p style={cardDateStyle}>
-                      생성일:{" "}
-                      {new Date(project.created_at).toLocaleDateString("ko-KR")}
-                    </p>
-                  </div>
+        </div>
 
-                  {project.floorplan_file_url ? (
-                    <span style={floorplanBadgeStyle}>도면 있음</span>
-                  ) : null}
-                </div>
+        <section style={cardStyle}>
+          <h2 style={sectionTitleStyle}>프로젝트 기본 정보</h2>
 
-                <div style={infoListStyle}>
-                  <p style={infoItemStyle}>
-                    <strong>면적:</strong>{" "}
-                    {project.area !== null ? `${project.area}㎡` : "-"}
-                  </p>
-                  <p style={infoItemStyle}>
-                    <strong>인원:</strong>{" "}
-                    {project.headcount !== null ? `${project.headcount}명` : "-"}
-                  </p>
-                  <p style={infoItemStyle}>
-                    <strong>공간 형태:</strong> {project.shape || "-"}
-                  </p>
-                  <p style={noteStyle}>
-                    <strong>추가 요청사항:</strong> {project.notes || "-"}
-                  </p>
-                </div>
+          <div style={infoGridStyle}>
+            <div style={infoCardStyle}>
+              <p style={infoLabelStyle}>프로젝트 이름</p>
+              <p style={infoValueStyle}>{project.project_name}</p>
+            </div>
 
-                <div style={buttonRowStyle}>
-                  <Link
-                    href={`/projects/${project.id}`}
-                    style={secondaryButtonStyle}
-                  >
-                    상세 보기
-                  </Link>
+            <div style={infoCardStyle}>
+              <p style={infoLabelStyle}>면적</p>
+              <p style={infoValueStyle}>
+                {project.area !== null ? `${project.area}㎡` : "-"}
+              </p>
+            </div>
 
-                  <Link
-                    href={`/projects/${project.id}/edit`}
-                    style={secondaryButtonStyle}
-                  >
-                    수정
-                  </Link>
+            <div style={infoCardStyle}>
+              <p style={infoLabelStyle}>인원</p>
+              <p style={infoValueStyle}>
+                {project.headcount !== null ? `${project.headcount}명` : "-"}
+              </p>
+            </div>
 
-                  <Link
-                    href={`/projects/${project.id}/layout3d`}
-                    style={secondaryButtonStyle}
-                  >
-                    3D 배치
-                  </Link>
+            <div style={infoCardStyle}>
+              <p style={infoLabelStyle}>공간 형태</p>
+              <p style={infoValueStyle}>{project.shape || "-"}</p>
+            </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(project.id)}
-                    disabled={deletingId === project.id}
-                    style={dangerButtonStyle}
-                  >
-                    {deletingId === project.id ? "삭제 중..." : "삭제"}
-                  </button>
-                </div>
-              </article>
-            ))}
+            <div style={infoCardStyle}>
+              <p style={infoLabelStyle}>생성일</p>
+              <p style={infoValueStyle}>
+                {new Date(project.created_at).toLocaleDateString("ko-KR")}
+              </p>
+            </div>
+
+            <div style={infoCardStyle}>
+              <p style={infoLabelStyle}>도면 파일명</p>
+              <p style={infoValueStyle}>{project.floorplan_file_name || "-"}</p>
+            </div>
           </div>
-        )}
+
+          <div style={noteBoxStyle}>
+            <p style={infoLabelStyle}>추가 요청사항</p>
+            <p style={noteTextStyle}>{project.notes || "-"}</p>
+          </div>
+        </section>
+
+        <section style={cardStyle}>
+          <h2 style={sectionTitleStyle}>업로드된 도면 파일</h2>
+
+          {!project.floorplan_file_url ? (
+            <div style={emptyBoxStyle}>업로드된 도면 파일이 없어요.</div>
+          ) : fileType === "image" ? (
+            <div style={previewWrapperStyle}>
+              <img
+                src={project.floorplan_file_url}
+                alt={project.floorplan_file_name || "업로드된 도면 이미지"}
+                style={previewImageStyle}
+              />
+
+              <div style={fileButtonRowStyle}>
+                <a
+                  href={project.floorplan_file_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={secondaryButtonStyle}
+                >
+                  새 탭에서 열기
+                </a>
+                <a
+                  href={project.floorplan_file_url}
+                  download
+                  style={primaryButtonStyle}
+                >
+                  이미지 다운로드
+                </a>
+              </div>
+            </div>
+          ) : fileType === "pdf" ? (
+            <div style={pdfBoxStyle}>
+              <p style={pdfTextStyle}>
+                PDF 도면 파일이 업로드되어 있어요.
+              </p>
+              <div style={fileButtonRowStyle}>
+                <a
+                  href={project.floorplan_file_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={secondaryButtonStyle}
+                >
+                  PDF 열기
+                </a>
+                <a
+                  href={project.floorplan_file_url}
+                  download
+                  style={primaryButtonStyle}
+                >
+                  PDF 다운로드
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div style={pdfBoxStyle}>
+              <p style={pdfTextStyle}>
+                도면 파일이 업로드되어 있어요. 아래 버튼으로 열거나 내려받을 수
+                있어요.
+              </p>
+              <div style={fileButtonRowStyle}>
+                <a
+                  href={project.floorplan_file_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={secondaryButtonStyle}
+                >
+                  파일 열기
+                </a>
+                <a
+                  href={project.floorplan_file_url}
+                  download
+                  style={primaryButtonStyle}
+                >
+                  파일 다운로드
+                </a>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );
@@ -241,7 +325,7 @@ const pageStyle: CSSProperties = {
 };
 
 const containerStyle: CSSProperties = {
-  maxWidth: "1200px",
+  maxWidth: "1100px",
   margin: "0 auto",
 };
 
@@ -263,8 +347,8 @@ const eyebrowStyle: CSSProperties = {
 };
 
 const titleStyle: CSSProperties = {
-  margin: "8px 0 8px",
-  fontSize: "32px",
+  margin: "8px 0",
+  fontSize: "34px",
   fontWeight: 800,
   color: "#0f172a",
 };
@@ -276,152 +360,143 @@ const descriptionStyle: CSSProperties = {
   lineHeight: 1.6,
 };
 
-const toolbarStyle: CSSProperties = {
+const topButtonRowStyle: CSSProperties = {
   display: "flex",
-  gap: "12px",
+  gap: "10px",
   flexWrap: "wrap",
-  marginBottom: "16px",
-};
-
-const searchInputStyle: CSSProperties = {
-  flex: "1 1 320px",
-  minWidth: "260px",
-  border: "1px solid #cbd5e1",
-  borderRadius: "12px",
-  padding: "12px 14px",
-  fontSize: "14px",
-  backgroundColor: "#ffffff",
-};
-
-const selectStyle: CSSProperties = {
-  border: "1px solid #cbd5e1",
-  borderRadius: "12px",
-  padding: "12px 14px",
-  fontSize: "14px",
-  backgroundColor: "#ffffff",
-  minWidth: "140px",
-};
-
-const summaryRowStyle: CSSProperties = {
-  marginBottom: "20px",
-};
-
-const summaryBadgeStyle: CSSProperties = {
-  display: "inline-block",
-  padding: "8px 12px",
-  borderRadius: "999px",
-  backgroundColor: "#dbeafe",
-  color: "#1d4ed8",
-  fontWeight: 700,
-  fontSize: "13px",
-};
-
-const gridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-  gap: "18px",
 };
 
 const cardStyle: CSSProperties = {
   backgroundColor: "#ffffff",
   border: "1px solid #e2e8f0",
   borderRadius: "20px",
-  padding: "20px",
+  padding: "24px",
   boxShadow: "0 12px 30px rgba(15, 23, 42, 0.06)",
+  marginBottom: "20px",
 };
 
-const cardHeaderStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: "12px",
-  marginBottom: "14px",
-};
-
-const cardTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "20px",
+const sectionTitleStyle: CSSProperties = {
+  margin: "0 0 18px",
+  fontSize: "22px",
   fontWeight: 800,
   color: "#0f172a",
 };
 
-const cardDateStyle: CSSProperties = {
-  margin: "8px 0 0",
-  color: "#64748b",
-  fontSize: "13px",
-};
-
-const floorplanBadgeStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "8px 10px",
-  borderRadius: "999px",
-  backgroundColor: "#dbeafe",
-  color: "#1d4ed8",
-  fontWeight: 700,
-  fontSize: "12px",
-  whiteSpace: "nowrap",
-};
-
-const infoListStyle: CSSProperties = {
+const infoGridStyle: CSSProperties = {
   display: "grid",
-  gap: "8px",
-  marginBottom: "18px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "14px",
 };
 
-const infoItemStyle: CSSProperties = {
-  margin: 0,
-  color: "#1e293b",
-  fontSize: "14px",
-  lineHeight: 1.6,
+const infoCardStyle: CSSProperties = {
+  border: "1px solid #e2e8f0",
+  borderRadius: "16px",
+  padding: "16px",
+  backgroundColor: "#f8fafc",
 };
 
-const noteStyle: CSSProperties = {
+const infoLabelStyle: CSSProperties = {
   margin: 0,
-  color: "#334155",
-  fontSize: "14px",
-  lineHeight: 1.6,
+  fontSize: "13px",
+  color: "#64748b",
+  fontWeight: 700,
+};
+
+const infoValueStyle: CSSProperties = {
+  margin: "8px 0 0",
+  fontSize: "18px",
+  color: "#0f172a",
+  fontWeight: 700,
+  lineHeight: 1.5,
   wordBreak: "break-word",
 };
 
-const buttonRowStyle: CSSProperties = {
+const noteBoxStyle: CSSProperties = {
+  marginTop: "16px",
+  border: "1px solid #e2e8f0",
+  borderRadius: "16px",
+  padding: "16px",
+  backgroundColor: "#ffffff",
+};
+
+const noteTextStyle: CSSProperties = {
+  margin: "8px 0 0",
+  color: "#334155",
+  fontSize: "15px",
+  lineHeight: 1.7,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+};
+
+const previewWrapperStyle: CSSProperties = {
+  display: "grid",
+  gap: "16px",
+};
+
+const previewImageStyle: CSSProperties = {
+  width: "100%",
+  maxWidth: "100%",
+  borderRadius: "16px",
+  border: "1px solid #dbe4f0",
+  backgroundColor: "#f8fafc",
+};
+
+const fileButtonRowStyle: CSSProperties = {
   display: "flex",
-  flexWrap: "wrap",
   gap: "10px",
+  flexWrap: "wrap",
+};
+
+const pdfBoxStyle: CSSProperties = {
+  border: "1px solid #dbe4f0",
+  borderRadius: "16px",
+  padding: "20px",
+  backgroundColor: "#f8fafc",
+};
+
+const pdfTextStyle: CSSProperties = {
+  margin: "0 0 14px",
+  color: "#334155",
+  fontSize: "15px",
+  lineHeight: 1.6,
 };
 
 const primaryButtonStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: "12px 16px",
+  padding: "11px 15px",
   borderRadius: "12px",
   backgroundColor: "#2563eb",
   color: "#ffffff",
   fontWeight: 700,
   textDecoration: "none",
+  border: "none",
 };
 
 const secondaryButtonStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: "10px 14px",
+  padding: "11px 15px",
   borderRadius: "12px",
-  border: "1px solid #cbd5e1",
   backgroundColor: "#ffffff",
   color: "#0f172a",
   fontWeight: 700,
   textDecoration: "none",
+  border: "1px solid #cbd5e1",
 };
 
 const dangerButtonStyle: CSSProperties = {
-  border: "none",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "11px 15px",
   borderRadius: "12px",
   backgroundColor: "#ef4444",
   color: "#ffffff",
-  padding: "10px 14px",
   fontWeight: 700,
+  border: "none",
   cursor: "pointer",
 };
 
@@ -429,7 +504,7 @@ const emptyBoxStyle: CSSProperties = {
   backgroundColor: "#ffffff",
   border: "1px dashed #cbd5e1",
   borderRadius: "16px",
-  padding: "32px",
+  padding: "28px",
   textAlign: "center",
   color: "#475569",
 };
