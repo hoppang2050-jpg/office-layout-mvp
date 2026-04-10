@@ -3,6 +3,7 @@
 import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import LayoutPreview2D from "@/components/LayoutPreview2D";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!;
@@ -387,7 +388,7 @@ export default function ProjectDetailPage() {
             <div>
               <h2 style={styles.sectionTitle}>3D 배치 생성</h2>
               <p style={styles.sectionDescription}>
-                분석 결과와 프로젝트 정보를 바탕으로 자동 배치 결과를 저장하는 단계예요.
+                분석 결과와 프로젝트 정보를 바탕으로 자동 배치 결과를 저장하고 미리보기로 보여줍니다.
               </p>
             </div>
 
@@ -407,7 +408,18 @@ export default function ProjectDetailPage() {
           </div>
 
           {project.layout_3d_json ? (
-            <pre style={styles.jsonBox}>{prettyJson(project.layout_3d_json)}</pre>
+            <div style={styles.previewWrap}>
+              <LayoutPreview2D layout={project.layout_3d_json} />
+
+              <details style={styles.detailsBox}>
+                <summary style={styles.detailsSummary}>
+                  원본 JSON 보기
+                </summary>
+                <pre style={styles.jsonBox}>
+                  {prettyJson(project.layout_3d_json)}
+                </pre>
+              </details>
+            </div>
           ) : (
             <div style={styles.emptyBox}>아직 저장된 3D 배치 결과가 없습니다.</div>
           )}
@@ -623,5 +635,23 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "14px",
     fontWeight: 600,
     border: "1px solid #a7f3d0",
+  },
+  previewWrap: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+  },
+  detailsBox: {
+    border: "1px solid #e2e8f0",
+    borderRadius: "16px",
+    padding: "14px",
+    backgroundColor: "#ffffff",
+  },
+  detailsSummary: {
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: 700,
+    color: "#0f172a",
+    marginBottom: "12px",
   },
 };
