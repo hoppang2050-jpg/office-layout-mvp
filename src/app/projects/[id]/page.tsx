@@ -14,15 +14,19 @@ type Project = {
   notes: string | null;
   floorplan_file_url: string | null;
   floorplan_file_name: string | null;
+  analysis_status: string | null;
+  floorplan_analysis: Record<string, any> | null;
   created_at: string;
 };
 
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
+
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   const projectId = Number(params?.id);
@@ -44,7 +48,7 @@ export default function ProjectDetailPage() {
     const { data, error } = await supabase
       .from("office_projects")
       .select(
-        "id, project_name, area, headcount, shape, notes, floorplan_file_url, floorplan_file_name, created_at"
+        "id, project_name, area, headcount, shape, notes, floorplan_file_url, floorplan_file_name, analysis_status, floorplan_analysis, created_at"
       )
       .eq("id", id)
       .single();
@@ -84,10 +88,41 @@ export default function ProjectDetailPage() {
     router.refresh();
   };
 
+  const handleAnalyze = async () => {
+    if (!project) return;
+
+    setAnalyzing(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/analyze-floorplan", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "AI 분석 요청 중 오류가 발생했습니다.");
+      }
+
+      await fetchProject(project.id);
+      alert("AI 분석 결과가 저장되었습니다.");
+    } catch (error: any) {
+      setErrorMessage(error?.message || "AI 분석 요청 중 오류가 발생했습니다.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const fileType = useMemo(() => {
     const fileUrl = project?.floorplan_file_url?.toLowerCase() ?? "";
     const fileName = project?.floorplan_file_name?.toLowerCase() ?? "";
-
     const target = `${fileUrl} ${fileName}`;
 
     if (
@@ -106,6 +141,49 @@ export default function ProjectDetailPage() {
     return "unknown";
   }, [project]);
 
+  const analysisStatusLabel = useMemo(() => {
+    const status = project?.analysis_status ?? "pending";
+
+    if (status === "completed") return "분석 완료";
+    if (status === "failed") return "분석 실패";
+    if (status === "processing") return "분석 중";
+    return "분석 대기";
+  }, [project]);
+
+  const analysisStatusStyle = useMemo((): CSSProperties => {
+    const status = project?.analysis_status ?? "pending";
+
+    if (status === "completed") {
+      return {
+        ...analysisBadgeBaseStyle,
+        backgroundColor: "#dcfce7",
+        color: "#166534",
+      };
+    }
+
+    if (status === "failed") {
+      return {
+        ...analysisBadgeBaseStyle,
+        backgroundColor: "#fee2e2",
+        color: "#b91c1c",
+      };
+    }
+
+    if (status === "processing") {
+      return {
+        ...analysisBadgeBaseStyle,
+        backgroundColor: "#fef3c7",
+        color: "#92400e",
+      };
+    }
+
+    return {
+      ...analysisBadgeBaseStyle,
+      backgroundColor: "#dbeafe",
+      color: "#1d4ed8",
+    };
+  }, [project]);
+
   if (loading) {
     return (
       <main style={pageStyle}>
@@ -116,7 +194,7 @@ export default function ProjectDetailPage() {
     );
   }
 
-  if (errorMessage) {
+  if (errorMessage && !project) {
     return (
       <main style={pageStyle}>
         <div style={containerStyle}>
@@ -154,7 +232,7 @@ export default function ProjectDetailPage() {
             <p style={eyebrowStyle}>PROJECT DETAIL</p>
             <h1 style={titleStyle}>{project.project_name}</h1>
             <p style={descriptionStyle}>
-              저장된 프로젝트 정보와 업로드된 도면 파일을 확인할 수 있어요.
+              저장된 프로젝트 정보, 업로드된 도면 파일, AI 분석 상태를 확인할 수 있어요.
             </p>
           </div>
 
@@ -233,6 +311,45 @@ export default function ProjectDetailPage() {
         </section>
 
         <section style={cardStyle}>
+          <div style={analysisHeaderStyle}>
+            <h2 style={sectionTitleStyle}>AI 도면 분석</h2>
+            <div style={analysisRightBoxStyle}>
+              <span style={analysisStatusStyle}>{analysisStatusLabel}</span>
+              <button
+                type="button"
+                onClick={handleAnalyze}
+                disabled={analyzing}
+                style={analyzeButtonStyle}
+              >
+                {analyzing ? "분석 중..." : "AI 분석 실행"}
+              </button>
+            </div>
+          </div>
+
+          {errorMessage ? <div style={errorBoxStyle}>{errorMessage}</div> : null}
+
+          {!project.floorplan_analysis ? (
+            <div style={analysisPendingBoxStyle}>
+              <p style={analysisPendingTitleStyle}>
+                아직 AI 분석 결과가 저장되지 않았어요.
+              </p>
+              <p style={analysisPendingTextStyle}>
+                현재 상태는 <strong>{project.analysis_status ?? "pending"}</strong> 입니다.
+                버튼을 누르면 가짜 분석 API가 실행되고, 다음 단계에서 이 자리를
+                실제 OpenAI Vision 분석 결과로 바꾸게 됩니다.
+              </p>
+            </div>
+          ) : (
+            <div style={analysisResultBoxStyle}>
+              <p style={analysisResultTitleStyle}>저장된 분석 결과(JSON)</p>
+              <pre style={analysisPreStyle}>
+                {JSON.stringify(project.floorplan_analysis, null, 2)}
+              </pre>
+            </div>
+          )}
+        </section>
+
+        <section style={cardStyle}>
           <h2 style={sectionTitleStyle}>업로드된 도면 파일</h2>
 
           {!project.floorplan_file_url ? (
@@ -265,9 +382,7 @@ export default function ProjectDetailPage() {
             </div>
           ) : fileType === "pdf" ? (
             <div style={pdfBoxStyle}>
-              <p style={pdfTextStyle}>
-                PDF 도면 파일이 업로드되어 있어요.
-              </p>
+              <p style={pdfTextStyle}>PDF 도면 파일이 업로드되어 있어요.</p>
               <div style={fileButtonRowStyle}>
                 <a
                   href={project.floorplan_file_url}
@@ -289,8 +404,7 @@ export default function ProjectDetailPage() {
           ) : (
             <div style={pdfBoxStyle}>
               <p style={pdfTextStyle}>
-                도면 파일이 업로드되어 있어요. 아래 버튼으로 열거나 내려받을 수
-                있어요.
+                도면 파일이 업로드되어 있어요. 아래 버튼으로 열거나 내려받을 수 있어요.
               </p>
               <div style={fileButtonRowStyle}>
                 <a
@@ -376,7 +490,7 @@ const cardStyle: CSSProperties = {
 };
 
 const sectionTitleStyle: CSSProperties = {
-  margin: "0 0 18px",
+  margin: 0,
   fontSize: "22px",
   fontWeight: 800,
   color: "#0f172a",
@@ -426,6 +540,89 @@ const noteTextStyle: CSSProperties = {
   lineHeight: 1.7,
   whiteSpace: "pre-wrap",
   wordBreak: "break-word",
+};
+
+const analysisHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  flexWrap: "wrap",
+  marginBottom: "16px",
+};
+
+const analysisRightBoxStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+};
+
+const analysisBadgeBaseStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "8px 12px",
+  borderRadius: "999px",
+  fontSize: "13px",
+  fontWeight: 800,
+};
+
+const analyzeButtonStyle: CSSProperties = {
+  border: "none",
+  borderRadius: "12px",
+  backgroundColor: "#0f172a",
+  color: "#ffffff",
+  padding: "10px 14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const analysisPendingBoxStyle: CSSProperties = {
+  border: "1px solid #dbeafe",
+  backgroundColor: "#f8fbff",
+  borderRadius: "16px",
+  padding: "18px",
+};
+
+const analysisPendingTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "15px",
+  fontWeight: 800,
+  color: "#1d4ed8",
+};
+
+const analysisPendingTextStyle: CSSProperties = {
+  margin: "8px 0 0",
+  color: "#334155",
+  fontSize: "14px",
+  lineHeight: 1.7,
+};
+
+const analysisResultBoxStyle: CSSProperties = {
+  border: "1px solid #dbe4f0",
+  backgroundColor: "#f8fafc",
+  borderRadius: "16px",
+  padding: "18px",
+};
+
+const analysisResultTitleStyle: CSSProperties = {
+  margin: "0 0 12px",
+  fontSize: "15px",
+  fontWeight: 800,
+  color: "#0f172a",
+};
+
+const analysisPreStyle: CSSProperties = {
+  margin: 0,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  fontSize: "13px",
+  lineHeight: 1.7,
+  color: "#0f172a",
+  backgroundColor: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: "12px",
+  padding: "14px",
 };
 
 const previewWrapperStyle: CSSProperties = {
