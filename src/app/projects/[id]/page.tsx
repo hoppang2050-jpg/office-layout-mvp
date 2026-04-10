@@ -359,6 +359,24 @@ export default function ProjectDetailPage() {
     );
   }
 
+  const concept = project.design_concept_json;
+  const conceptKeywords = Array.isArray(concept?.keywords) ? concept.keywords : [];
+  const conceptPalette = Array.isArray(concept?.color_palette)
+    ? concept.color_palette
+    : [];
+  const conceptZones = Array.isArray(concept?.recommended_zones)
+    ? concept.recommended_zones
+    : [];
+  const conceptDirections = Array.isArray(concept?.styling_direction)
+    ? concept.styling_direction
+    : [];
+  const conceptReasoning = Array.isArray(concept?.ai_reasoning)
+    ? concept.ai_reasoning
+    : [];
+  const conceptMaterials = Array.isArray(concept?.material_keywords)
+    ? concept.material_keywords
+    : [];
+
   return (
     <main style={styles.page}>
       <div style={styles.container}>
@@ -525,7 +543,7 @@ export default function ProjectDetailPage() {
             <div>
               <h2 style={styles.sectionTitle}>디자인 컨셉</h2>
               <p style={styles.sectionDescription}>
-                업종, 입력 방식, 제원을 바탕으로 AI가 공간 컨셉을 추천합니다.
+                업종, 입력 방식, 제원을 바탕으로 AI가 공간의 분위기와 방향성을 추천합니다.
               </p>
             </div>
 
@@ -548,138 +566,183 @@ export default function ProjectDetailPage() {
             </div>
           </div>
 
-          {project.design_concept_json ? (
+          {concept ? (
             <div style={styles.conceptWrap}>
-              <div style={styles.conceptHero}>
-                <div>
-                  <div style={styles.conceptEyebrow}>AI CONCEPT</div>
-                  <h3 style={styles.conceptTitle}>
-                    {project.design_concept_json?.concept_title || "컨셉 제목 없음"}
-                  </h3>
-                  <p style={styles.conceptSubtitle}>
-                    {project.design_concept_json?.concept_subtitle || "컨셉 설명이 없습니다."}
-                  </p>
+              <div style={styles.conceptHeroCard}>
+                <div style={styles.conceptHeroTop}>
+                  <div>
+                    <div style={styles.conceptEyebrow}>AI CONCEPT RESULT</div>
+                    <h3 style={styles.conceptTitle}>
+                      {concept?.concept_title || "컨셉 제목 없음"}
+                    </h3>
+                    <p style={styles.conceptSubtitle}>
+                      {concept?.concept_subtitle || "컨셉 설명이 없습니다."}
+                    </p>
+                  </div>
+                  <div style={styles.heroActionHint}>
+                    {project.concept_status === "completed"
+                      ? "추천 완료"
+                      : "추천 결과"}
+                  </div>
+                </div>
+
+                <div style={styles.conceptSummaryGrid}>
+                  <SummaryCard
+                    label="업종"
+                    value={
+                      concept?.project_summary?.space_type_label ||
+                      getSpaceTypeLabel(project.space_type, project.space_type_detail)
+                    }
+                  />
+                  <SummaryCard
+                    label="입력 방식"
+                    value={
+                      concept?.project_summary?.input_mode_label ||
+                      getInputModeLabel(project.input_mode)
+                    }
+                  />
+                  <SummaryCard
+                    label="면적"
+                    value={concept?.project_summary?.area || project.area || "-"}
+                  />
+                  <SummaryCard
+                    label="인원수"
+                    value={
+                      concept?.project_summary?.headcount !== null &&
+                      concept?.project_summary?.headcount !== undefined
+                        ? `${concept.project_summary.headcount}명`
+                        : project.headcount !== null && project.headcount !== undefined
+                        ? `${project.headcount}명`
+                        : "-"
+                    }
+                  />
+                </div>
+
+                <div style={styles.moodBox}>
+                  <div style={styles.moodLabel}>추천 무드</div>
+                  <div style={styles.moodText}>
+                    {concept?.mood || "무드 설명이 없습니다."}
+                  </div>
                 </div>
               </div>
 
-              <div style={styles.infoGrid}>
-                <InfoItem
-                  label="업종"
-                  value={
-                    project.design_concept_json?.project_summary?.space_type_label ||
-                    getSpaceTypeLabel(project.space_type, project.space_type_detail)
-                  }
-                />
-                <InfoItem
-                  label="입력 방식"
-                  value={
-                    project.design_concept_json?.project_summary?.input_mode_label ||
-                    getInputModeLabel(project.input_mode)
-                  }
-                />
-                <InfoItem
-                  label="면적"
-                  value={
-                    project.design_concept_json?.project_summary?.area || project.area || "-"
-                  }
-                />
-                <InfoItem
-                  label="인원수"
-                  value={
-                    project.design_concept_json?.project_summary?.headcount !== null &&
-                    project.design_concept_json?.project_summary?.headcount !== undefined
-                      ? `${project.design_concept_json.project_summary.headcount}명`
-                      : project.headcount !== null && project.headcount !== undefined
-                      ? `${project.headcount}명`
-                      : "-"
-                  }
-                />
-              </div>
-
-              <div style={styles.conceptSection}>
-                <div style={styles.subSectionTitle}>무드</div>
-                <div style={styles.noteText}>
-                  {project.design_concept_json?.mood || "무드 설명이 없습니다."}
+              <div style={styles.conceptGrid}>
+                <div style={styles.miniCard}>
+                  <div style={styles.subSectionTitle}>키워드</div>
+                  {conceptKeywords.length > 0 ? (
+                    <div style={styles.tagWrap}>
+                      {conceptKeywords.map((item: string, index: number) => (
+                        <span key={`${item}-${index}`} style={styles.tag}>
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={styles.emptyMiniState}>키워드 정보가 없습니다.</div>
+                  )}
                 </div>
-              </div>
 
-              <div style={styles.conceptSection}>
-                <div style={styles.subSectionTitle}>키워드</div>
-                <div style={styles.tagWrap}>
-                  {(project.design_concept_json?.keywords || []).map(
-                    (item: string, index: number) => (
-                      <span key={`${item}-${index}`} style={styles.tag}>
-                        {item}
-                      </span>
-                    )
+                <div style={styles.miniCard}>
+                  <div style={styles.subSectionTitle}>추천 공간 구성</div>
+                  {conceptZones.length > 0 ? (
+                    <div style={styles.tagWrap}>
+                      {conceptZones.map((item: string, index: number) => (
+                        <span key={`${item}-${index}`} style={styles.tagSoft}>
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={styles.emptyMiniState}>추천 공간 정보가 없습니다.</div>
                   )}
                 </div>
               </div>
 
-              <div style={styles.conceptSection}>
-                <div style={styles.subSectionTitle}>컬러 팔레트</div>
-                <div style={styles.paletteWrap}>
-                  {(project.design_concept_json?.color_palette || []).map(
-                    (color: string, index: number) => (
-                      <div key={`${color}-${index}`} style={styles.paletteItem}>
-                        <div
-                          style={{
-                            ...styles.paletteSwatch,
-                            backgroundColor: color,
-                          }}
-                        />
-                        <span style={styles.paletteCode}>{color}</span>
-                      </div>
-                    )
+              <div style={styles.conceptGrid}>
+                <div style={styles.miniCard}>
+                  <div style={styles.subSectionTitle}>컬러 팔레트</div>
+                  {conceptPalette.length > 0 ? (
+                    <div style={styles.paletteWrap}>
+                      {conceptPalette.map((color: string, index: number) => (
+                        <div key={`${color}-${index}`} style={styles.paletteItem}>
+                          <div
+                            style={{
+                              ...styles.paletteSwatch,
+                              backgroundColor: color,
+                            }}
+                          />
+                          <span style={styles.paletteCode}>{color}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={styles.emptyMiniState}>컬러 팔레트 정보가 없습니다.</div>
+                  )}
+                </div>
+
+                <div style={styles.miniCard}>
+                  <div style={styles.subSectionTitle}>추천 소재 / 마감</div>
+                  {conceptMaterials.length > 0 ? (
+                    <div style={styles.tagWrap}>
+                      {conceptMaterials.map((item: string, index: number) => (
+                        <span key={`${item}-${index}`} style={styles.tagNeutral}>
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={styles.emptyMiniState}>소재 정보가 없습니다.</div>
                   )}
                 </div>
               </div>
 
-              <div style={styles.conceptSection}>
-                <div style={styles.subSectionTitle}>추천 공간 구성</div>
-                <div style={styles.tagWrap}>
-                  {(project.design_concept_json?.recommended_zones || []).map(
-                    (item: string, index: number) => (
-                      <span key={`${item}-${index}`} style={styles.tag}>
-                        {item}
-                      </span>
-                    )
+              <div style={styles.conceptGrid}>
+                <div style={styles.miniCard}>
+                  <div style={styles.subSectionTitle}>스타일링 방향</div>
+                  {conceptDirections.length > 0 ? (
+                    <ul style={styles.bulletList}>
+                      {conceptDirections.map((item: string, index: number) => (
+                        <li key={`${item}-${index}`} style={styles.bulletItem}>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div style={styles.emptyMiniState}>스타일링 방향 정보가 없습니다.</div>
+                  )}
+                </div>
+
+                <div style={styles.miniCard}>
+                  <div style={styles.subSectionTitle}>AI 추천 이유</div>
+                  {conceptReasoning.length > 0 ? (
+                    <ul style={styles.bulletList}>
+                      {conceptReasoning.map((item: string, index: number) => (
+                        <li key={`${item}-${index}`} style={styles.bulletItem}>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div style={styles.emptyMiniState}>추천 이유 정보가 없습니다.</div>
                   )}
                 </div>
               </div>
 
-              <div style={styles.conceptSection}>
-                <div style={styles.subSectionTitle}>스타일링 방향</div>
-                <ul style={styles.bulletList}>
-                  {(project.design_concept_json?.styling_direction || []).map(
-                    (item: string, index: number) => (
-                      <li key={`${item}-${index}`} style={styles.bulletItem}>
-                        {item}
-                      </li>
-                    )
-                  )}
-                </ul>
-              </div>
+              {concept?.hero_prompt ? (
+                <div style={styles.promptCard}>
+                  <div style={styles.promptLabel}>비주얼 컨셉 프롬프트</div>
+                  <div style={styles.promptText}>{concept.hero_prompt}</div>
+                </div>
+              ) : null}
 
-              <div style={styles.conceptSection}>
-                <div style={styles.subSectionTitle}>AI 추천 이유</div>
-                <ul style={styles.bulletList}>
-                  {(project.design_concept_json?.ai_reasoning || []).map(
-                    (item: string, index: number) => (
-                      <li key={`${item}-${index}`} style={styles.bulletItem}>
-                        {item}
-                      </li>
-                    )
-                  )}
-                </ul>
-              </div>
-
-              <div style={styles.conceptSection}>
-                <div style={styles.subSectionTitle}>원본 JSON</div>
-                <pre style={styles.codeBlock}>
-                  {prettyJson(project.design_concept_json)}
-                </pre>
-              </div>
+              <details style={styles.detailsBox}>
+                <summary style={styles.detailsSummary}>
+                  원본 JSON 펼쳐보기
+                </summary>
+                <div style={styles.detailsContent}>
+                  <pre style={styles.codeBlock}>{prettyJson(concept)}</pre>
+                </div>
+              </details>
             </div>
           ) : (
             <div style={styles.emptyState}>
@@ -720,10 +783,14 @@ export default function ProjectDetailPage() {
           {project.layout_3d_json ? (
             <div style={styles.layoutWrap}>
               <LayoutPreview2D layout={project.layout_3d_json} />
-              <div style={styles.conceptSection}>
-                <div style={styles.subSectionTitle}>원본 JSON</div>
-                <pre style={styles.codeBlock}>{prettyJson(project.layout_3d_json)}</pre>
-              </div>
+              <details style={styles.detailsBox}>
+                <summary style={styles.detailsSummary}>
+                  3D 배치 원본 JSON 펼쳐보기
+                </summary>
+                <div style={styles.detailsContent}>
+                  <pre style={styles.codeBlock}>{prettyJson(project.layout_3d_json)}</pre>
+                </div>
+              </details>
             </div>
           ) : (
             <div style={styles.emptyState}>
@@ -745,10 +812,20 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+function SummaryCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={styles.summaryCard}>
+      <div style={styles.summaryLabel}>{label}</div>
+      <div style={styles.summaryValue}>{value}</div>
+    </div>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
   page: {
     minHeight: "100vh",
-    backgroundColor: "#f8fafc",
+    background:
+      "linear-gradient(180deg, #f8fafc 0%, #f5f7fb 45%, #eef2ff 100%)",
     padding: "32px 20px 80px",
     fontFamily:
       'Inter, Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -763,11 +840,12 @@ const styles: Record<string, CSSProperties> = {
   loadingCard: {
     backgroundColor: "#ffffff",
     border: "1px solid #e2e8f0",
-    borderRadius: "20px",
+    borderRadius: "24px",
     padding: "40px",
     textAlign: "center",
     fontSize: "16px",
     color: "#475569",
+    boxShadow: "0 12px 30px rgba(15, 23, 42, 0.06)",
   },
   headerRow: {
     display: "flex",
@@ -777,9 +855,9 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: "wrap",
     backgroundColor: "#ffffff",
     border: "1px solid #e2e8f0",
-    borderRadius: "24px",
+    borderRadius: "28px",
     padding: "28px",
-    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.04)",
+    boxShadow: "0 14px 36px rgba(15, 23, 42, 0.06)",
   },
   eyebrow: {
     margin: 0,
@@ -812,7 +890,7 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid #e2e8f0",
     borderRadius: "24px",
     padding: "24px",
-    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.04)",
+    boxShadow: "0 12px 30px rgba(15, 23, 42, 0.05)",
   },
   sectionHeader: {
     display: "flex",
@@ -899,8 +977,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "0 16px",
     border: "none",
     borderRadius: "12px",
-    background:
-      "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+    background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
     color: "#ffffff",
     fontSize: "14px",
     fontWeight: 800,
@@ -958,6 +1035,15 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "14px",
     lineHeight: 1.7,
   },
+  emptyMiniState: {
+    border: "1px dashed #dbe4f0",
+    backgroundColor: "#f8fafc",
+    color: "#64748b",
+    borderRadius: "14px",
+    padding: "14px",
+    fontSize: "13px",
+    lineHeight: 1.6,
+  },
   codeBlock: {
     margin: 0,
     padding: "16px",
@@ -975,12 +1061,35 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: "18px",
   },
-  conceptHero: {
-    borderRadius: "18px",
-    padding: "20px",
+  conceptHeroCard: {
+    borderRadius: "24px",
+    padding: "22px",
     background:
-      "linear-gradient(135deg, rgba(79,70,229,0.08) 0%, rgba(124,58,237,0.10) 100%)",
+      "linear-gradient(135deg, rgba(79,70,229,0.10) 0%, rgba(124,58,237,0.12) 55%, rgba(255,255,255,0.95) 100%)",
     border: "1px solid #ddd6fe",
+    boxShadow: "0 16px 34px rgba(99, 102, 241, 0.10)",
+  },
+  conceptHeroTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "14px",
+    flexWrap: "wrap",
+    marginBottom: "18px",
+  },
+  heroActionHint: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "34px",
+    padding: "0 12px",
+    borderRadius: "999px",
+    backgroundColor: "rgba(255,255,255,0.85)",
+    color: "#5b21b6",
+    fontSize: "12px",
+    fontWeight: 800,
+    border: "1px solid rgba(139,92,246,0.22)",
+    whiteSpace: "nowrap",
   },
   conceptEyebrow: {
     fontSize: "12px",
@@ -991,8 +1100,8 @@ const styles: Record<string, CSSProperties> = {
   },
   conceptTitle: {
     margin: 0,
-    fontSize: "24px",
-    lineHeight: 1.2,
+    fontSize: "28px",
+    lineHeight: 1.15,
     color: "#1e1b4b",
   },
   conceptSubtitle: {
@@ -1000,11 +1109,66 @@ const styles: Record<string, CSSProperties> = {
     color: "#4c1d95",
     fontSize: "14px",
     lineHeight: 1.7,
+    maxWidth: "820px",
   },
-  conceptSection: {
+  conceptSummaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: "12px",
+    marginBottom: "16px",
+  },
+  summaryCard: {
+    borderRadius: "16px",
+    padding: "14px 16px",
+    backgroundColor: "rgba(255,255,255,0.78)",
+    border: "1px solid rgba(196,181,253,0.5)",
+    backdropFilter: "blur(8px)",
+  },
+  summaryLabel: {
+    fontSize: "12px",
+    fontWeight: 800,
+    color: "#6d28d9",
+    marginBottom: "6px",
+  },
+  summaryValue: {
+    fontSize: "15px",
+    fontWeight: 800,
+    color: "#1f2937",
+    lineHeight: 1.5,
+  },
+  moodBox: {
+    borderRadius: "18px",
+    padding: "16px",
+    backgroundColor: "rgba(255,255,255,0.82)",
+    border: "1px solid rgba(216,180,254,0.5)",
+  },
+  moodLabel: {
+    fontSize: "12px",
+    fontWeight: 900,
+    color: "#7c3aed",
+    letterSpacing: "0.06em",
+    marginBottom: "8px",
+  },
+  moodText: {
+    fontSize: "15px",
+    lineHeight: 1.8,
+    color: "#374151",
+    fontWeight: 600,
+  },
+  conceptGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+    gap: "16px",
+  },
+  miniCard: {
+    borderRadius: "20px",
+    padding: "18px",
+    backgroundColor: "#ffffff",
+    border: "1px solid #e2e8f0",
+    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)",
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
+    gap: "12px",
   },
   subSectionTitle: {
     fontSize: "14px",
@@ -1023,7 +1187,34 @@ const styles: Record<string, CSSProperties> = {
     minHeight: "34px",
     padding: "0 12px",
     borderRadius: "999px",
-    backgroundColor: "#f1f5f9",
+    background:
+      "linear-gradient(135deg, rgba(99,102,241,0.10) 0%, rgba(124,58,237,0.10) 100%)",
+    color: "#4338ca",
+    border: "1px solid rgba(129,140,248,0.35)",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+  tagSoft: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "34px",
+    padding: "0 12px",
+    borderRadius: "999px",
+    backgroundColor: "#ecfeff",
+    color: "#0f766e",
+    border: "1px solid #99f6e4",
+    fontSize: "13px",
+    fontWeight: 800,
+  },
+  tagNeutral: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "34px",
+    padding: "0 12px",
+    borderRadius: "999px",
+    backgroundColor: "#f8fafc",
     color: "#334155",
     border: "1px solid #cbd5e1",
     fontSize: "13px",
@@ -1044,10 +1235,11 @@ const styles: Record<string, CSSProperties> = {
     backgroundColor: "#ffffff",
   },
   paletteSwatch: {
-    width: "20px",
-    height: "20px",
+    width: "22px",
+    height: "22px",
     borderRadius: "999px",
     border: "1px solid rgba(15, 23, 42, 0.12)",
+    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.35)",
   },
   paletteCode: {
     fontSize: "12px",
@@ -1063,6 +1255,45 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "14px",
     lineHeight: 1.8,
     marginBottom: "6px",
+  },
+  promptCard: {
+    borderRadius: "18px",
+    padding: "18px",
+    border: "1px solid #dbeafe",
+    background:
+      "linear-gradient(135deg, rgba(239,246,255,0.95) 0%, rgba(224,231,255,0.85) 100%)",
+  },
+  promptLabel: {
+    fontSize: "12px",
+    fontWeight: 900,
+    color: "#1d4ed8",
+    letterSpacing: "0.08em",
+    marginBottom: "8px",
+  },
+  promptText: {
+    fontSize: "14px",
+    lineHeight: 1.8,
+    color: "#334155",
+    wordBreak: "break-word",
+  },
+  detailsBox: {
+    borderRadius: "18px",
+    border: "1px solid #e2e8f0",
+    backgroundColor: "#ffffff",
+    overflow: "hidden",
+  },
+  detailsSummary: {
+    cursor: "pointer",
+    padding: "16px 18px",
+    fontSize: "14px",
+    fontWeight: 800,
+    color: "#334155",
+    backgroundColor: "#f8fafc",
+    listStyle: "none",
+  },
+  detailsContent: {
+    padding: "16px",
+    borderTop: "1px solid #e2e8f0",
   },
   layoutWrap: {
     display: "flex",
