@@ -13,11 +13,16 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 type OfficeProject = {
   id: number;
   project_name: string;
+  space_type: string | null;
+  space_type_detail: string | null;
+  input_mode: string | null;
   area: string | null;
   headcount: number | null;
   shape: string | null;
   notes: string | null;
   floorplan_file_url: string | null;
+  concept_status: string | null;
+  design_concept_json: any;
   analysis_status: string | null;
   floorplan_analysis: any;
   layout_status: string | null;
@@ -33,6 +38,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<OfficeProject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState("");
+  const [isGeneratingConcept, setIsGeneratingConcept] = useState(false);
   const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
   const [isGeneratingLayout, setIsGeneratingLayout] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
@@ -72,6 +78,36 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     loadProject();
   }, [projectId]);
+
+  async function handleGenerateConcept() {
+    if (!projectId) return;
+
+    setIsGeneratingConcept(true);
+    setActionMessage("");
+
+    try {
+      const response = await fetch("/api/generate-concept", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projectId }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "AI 컨셉 추천 중 오류가 발생했습니다.");
+      }
+
+      setActionMessage("AI 컨셉 추천이 완료되었습니다.");
+      await loadProject();
+    } catch (error: any) {
+      setActionMessage(error?.message || "AI 컨셉 추천 중 오류가 발생했습니다.");
+    } finally {
+      setIsGeneratingConcept(false);
+    }
+  }
 
   async function handleRunAnalysis() {
     if (!projectId) return;
@@ -175,10 +211,91 @@ export default function ProjectDetailPage() {
     }
   }
 
+  function getSpaceTypeLabel(spaceType: string | null) {
+    switch (spaceType) {
+      case "office":
+        return "사무실";
+      case "cafe":
+        return "카페";
+      case "restaurant":
+        return "식당";
+      case "fitness":
+        return "헬스장 / 피트니스";
+      case "retail":
+        return "매장 / 쇼룸";
+      case "other":
+        return "기타";
+      default:
+        return "-";
+    }
+  }
+
+  function getInputModeLabel(inputMode: string | null) {
+    switch (inputMode) {
+      case "floorplan":
+        return "정식 도면 업로드";
+      case "sketch":
+        return "손그림 스케치 업로드";
+      case "no_drawing":
+        return "도면 없이 텍스트만 입력";
+      default:
+        return "-";
+    }
+  }
+
+  function getProjectGuideText(spaceType: string | null, inputMode: string | null) {
+    const modeText =
+      inputMode === "floorplan"
+        ? "정식 도면을 기준으로 공간 구조를 해석하는 흐름"
+        : inputMode === "sketch"
+        ? "손그림 스케치를 참고해서 공간 의도를 읽는 흐름"
+        : "텍스트 제원만으로 기본 배치안을 만드는 흐름";
+
+    switch (spaceType) {
+      case "office":
+        return `이 프로젝트는 사무실 유형이며, ${modeText}입니다. 팀 구조, 회의실 수, 탕비실/집중존 여부가 배치 품질에 크게 영향을 줍니다.`;
+      case "cafe":
+        return `이 프로젝트는 카페 유형이며, ${modeText}입니다. 좌석 밀도, 바 카운터, 포토존, 체류형/회전형 운영 방향이 중요합니다.`;
+      case "restaurant":
+        return `이 프로젝트는 식당 유형이며, ${modeText}입니다. 홀/주방/대기 공간과 서빙 동선, 테이블 비율이 핵심입니다.`;
+      case "fitness":
+        return `이 프로젝트는 헬스장/피트니스 유형이며, ${modeText}입니다. 머신존, PT룸, 락커/샤워실 구성이 중요한 기준입니다.`;
+      case "retail":
+        return `이 프로젝트는 매장/쇼룸 유형이며, ${modeText}입니다. 진열, 체험, 카운터, 재고공간의 우선순위를 함께 봐야 합니다.`;
+      case "other":
+        return `이 프로젝트는 기타 업종이며, ${modeText}입니다. 세부 업종과 운영 방식을 자세히 적어줄수록 추천 결과가 더 정확해집니다.`;
+      default:
+        return `이 프로젝트는 ${modeText}입니다.`;
+    }
+  }
+
   function prettyJson(value: any) {
     if (!value) return "";
     return JSON.stringify(value, null, 2);
   }
+
+  const primaryConcept = project?.design_concept_json?.primary_concept;
+  const conceptAlternatives = Array.isArray(project?.design_concept_json?.alternatives)
+    ? project?.design_concept_json?.alternatives
+    : [];
+  const conceptKeywords = Array.isArray(primaryConcept?.keywords)
+    ? primaryConcept.keywords
+    : [];
+  const conceptPalette = Array.isArray(primaryConcept?.palette)
+    ? primaryConcept.palette
+    : [];
+  const conceptMaterials = Array.isArray(primaryConcept?.materials)
+    ? primaryConcept.materials
+    : [];
+  const conceptFocalPoints = Array.isArray(primaryConcept?.focal_points)
+    ? primaryConcept.focal_points
+    : [];
+  const conceptPrinciples = Array.isArray(primaryConcept?.planning_principles)
+    ? primaryConcept.planning_principles
+    : [];
+  const recommendedZones = Array.isArray(project?.design_concept_json?.recommended_zones)
+    ? project?.design_concept_json?.recommended_zones
+    : [];
 
   if (isLoading) {
     return (
@@ -230,7 +347,7 @@ export default function ProjectDetailPage() {
             <p style={styles.eyebrow}>PROJECT DETAIL</p>
             <h1 style={styles.title}>{project.project_name}</h1>
             <p style={styles.description}>
-              프로젝트 기본 정보, 도면, AI 분석 결과, 3D 배치 결과를 확인할 수 있어요.
+              프로젝트 기본 정보, 컨셉 추천, 도면/스케치, AI 분석 결과, 3D 배치 결과를 확인할 수 있어요.
             </p>
           </div>
 
@@ -265,6 +382,38 @@ export default function ProjectDetailPage() {
         ) : null}
 
         <section style={styles.card}>
+          <h2 style={styles.sectionTitle}>프로젝트 성격</h2>
+
+          <div style={styles.infoGrid}>
+            <div style={styles.infoItem}>
+              <div style={styles.infoLabel}>대표업종</div>
+              <div style={styles.infoValue}>{getSpaceTypeLabel(project.space_type)}</div>
+            </div>
+
+            <div style={styles.infoItem}>
+              <div style={styles.infoLabel}>기타 업종 상세</div>
+              <div style={styles.infoValue}>
+                {project.space_type === "other"
+                  ? project.space_type_detail || "-"
+                  : "-"}
+              </div>
+            </div>
+
+            <div style={styles.infoItem}>
+              <div style={styles.infoLabel}>입력 방식</div>
+              <div style={styles.infoValue}>{getInputModeLabel(project.input_mode)}</div>
+            </div>
+
+            <div style={styles.infoItemWide}>
+              <div style={styles.infoLabel}>현재 해석 기준 안내</div>
+              <div style={styles.infoValue}>
+                {getProjectGuideText(project.space_type, project.input_mode)}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section style={styles.card}>
           <h2 style={styles.sectionTitle}>기본 정보</h2>
 
           <div style={styles.infoGrid}>
@@ -279,7 +428,7 @@ export default function ProjectDetailPage() {
             </div>
 
             <div style={styles.infoItem}>
-              <div style={styles.infoLabel}>인원수</div>
+              <div style={styles.infoLabel}>인원수 / 예상 수용 인원</div>
               <div style={styles.infoValue}>
                 {project.headcount !== null && project.headcount !== undefined
                   ? `${project.headcount}명`
@@ -301,7 +450,198 @@ export default function ProjectDetailPage() {
 
         <section style={styles.card}>
           <div style={styles.sectionHeaderRow}>
-            <h2 style={styles.sectionTitle}>도면 파일</h2>
+            <div>
+              <h2 style={styles.sectionTitle}>AI 컨셉 추천</h2>
+              <p style={styles.sectionDescription}>
+                업종, 입력 방식, 제원 정보를 바탕으로 디자인 방향과 공간 컨셉을 추천하는 단계예요.
+              </p>
+            </div>
+
+            <div style={styles.actionArea}>
+              <span style={getStatusBadgeStyle(project.concept_status)}>
+                컨셉 {getStatusLabel(project.concept_status)}
+              </span>
+              <button
+                type="button"
+                onClick={handleGenerateConcept}
+                style={styles.primaryButton}
+                disabled={isGeneratingConcept}
+              >
+                {isGeneratingConcept ? "컨셉 추천 중..." : "AI 컨셉 추천"}
+              </button>
+            </div>
+          </div>
+
+          {project.design_concept_json ? (
+            <div style={styles.conceptWrap}>
+              <div style={styles.heroConceptCard}>
+                <div style={styles.heroConceptTop}>
+                  <span style={styles.heroConceptBadge}>추천 메인 컨셉</span>
+                  <h3 style={styles.heroConceptTitle}>
+                    {primaryConcept?.name || "추천 컨셉"}
+                  </h3>
+                  <p style={styles.heroConceptSummary}>
+                    {primaryConcept?.summary || "-"}
+                  </p>
+                </div>
+
+                <div style={styles.conceptSectionGrid}>
+                  <div style={styles.conceptInfoCard}>
+                    <div style={styles.conceptCardTitle}>분위기</div>
+                    <div style={styles.conceptCardText}>
+                      {primaryConcept?.mood || "-"}
+                    </div>
+                  </div>
+
+                  <div style={styles.conceptInfoCard}>
+                    <div style={styles.conceptCardTitle}>브랜드 스토리</div>
+                    <div style={styles.conceptCardText}>
+                      {project.design_concept_json?.brand_story || "-"}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={styles.chipGroupWrap}>
+                  <div style={styles.chipGroup}>
+                    <div style={styles.chipTitle}>키워드</div>
+                    <div style={styles.tagWrap}>
+                      {conceptKeywords.length > 0 ? (
+                        conceptKeywords.map((item: string, index: number) => (
+                          <span key={`${item}-${index}`} style={styles.tagBlue}>
+                            {item}
+                          </span>
+                        ))
+                      ) : (
+                        <span style={styles.emptyTag}>없음</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={styles.chipGroup}>
+                    <div style={styles.chipTitle}>컬러 팔레트</div>
+                    <div style={styles.tagWrap}>
+                      {conceptPalette.length > 0 ? (
+                        conceptPalette.map((item: string, index: number) => (
+                          <span key={`${item}-${index}`} style={styles.tagPurple}>
+                            {item}
+                          </span>
+                        ))
+                      ) : (
+                        <span style={styles.emptyTag}>없음</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={styles.chipGroup}>
+                    <div style={styles.chipTitle}>재료감</div>
+                    <div style={styles.tagWrap}>
+                      {conceptMaterials.length > 0 ? (
+                        conceptMaterials.map((item: string, index: number) => (
+                          <span key={`${item}-${index}`} style={styles.tagGreen}>
+                            {item}
+                          </span>
+                        ))
+                      ) : (
+                        <span style={styles.emptyTag}>없음</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={styles.conceptSectionGrid}>
+                  <div style={styles.conceptInfoCard}>
+                    <div style={styles.conceptCardTitle}>포인트 공간</div>
+                    {conceptFocalPoints.length > 0 ? (
+                      <ul style={styles.list}>
+                        {conceptFocalPoints.map((item: string, index: number) => (
+                          <li key={`${item}-${index}`} style={styles.listItem}>
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div style={styles.conceptCardText}>없음</div>
+                    )}
+                  </div>
+
+                  <div style={styles.conceptInfoCard}>
+                    <div style={styles.conceptCardTitle}>배치 원칙</div>
+                    {conceptPrinciples.length > 0 ? (
+                      <ul style={styles.list}>
+                        {conceptPrinciples.map((item: string, index: number) => (
+                          <li key={`${item}-${index}`} style={styles.listItem}>
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div style={styles.conceptCardText}>없음</div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={styles.chipGroup}>
+                  <div style={styles.chipTitle}>추천 존</div>
+                  <div style={styles.tagWrap}>
+                    {recommendedZones.length > 0 ? (
+                      recommendedZones.map((item: string, index: number) => (
+                        <span key={`${item}-${index}`} style={styles.tagGray}>
+                          {item}
+                        </span>
+                      ))
+                    ) : (
+                      <span style={styles.emptyTag}>없음</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.altCard}>
+                <div style={styles.altTitle}>대안 컨셉</div>
+
+                {conceptAlternatives.length > 0 ? (
+                  <div style={styles.altGrid}>
+                    {conceptAlternatives.map((item: any, index: number) => (
+                      <div key={`${item?.name}-${index}`} style={styles.altItem}>
+                        <div style={styles.altName}>{item?.name || `대안 ${index + 1}`}</div>
+                        <div style={styles.altSummary}>{item?.summary || "-"}</div>
+                        <div style={styles.tagWrap}>
+                          {Array.isArray(item?.keywords) && item.keywords.length > 0 ? (
+                            item.keywords.map((keyword: string, keywordIndex: number) => (
+                              <span
+                                key={`${keyword}-${keywordIndex}`}
+                                style={styles.tagLight}
+                              >
+                                {keyword}
+                              </span>
+                            ))
+                          ) : (
+                            <span style={styles.emptyTag}>없음</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={styles.emptyBox}>아직 대안 컨셉이 없습니다.</div>
+                )}
+              </div>
+
+              <details style={styles.detailsBox}>
+                <summary style={styles.detailsSummary}>원본 컨셉 JSON 보기</summary>
+                <pre style={styles.jsonBox}>
+                  {prettyJson(project.design_concept_json)}
+                </pre>
+              </details>
+            </div>
+          ) : (
+            <div style={styles.emptyBox}>아직 저장된 AI 컨셉 추천 결과가 없습니다.</div>
+          )}
+        </section>
+
+        <section style={styles.card}>
+          <div style={styles.sectionHeaderRow}>
+            <h2 style={styles.sectionTitle}>도면 / 스케치 파일</h2>
             {project.floorplan_file_url ? (
               <span
                 style={{
@@ -310,7 +650,7 @@ export default function ProjectDetailPage() {
                   color: "#1d4ed8",
                 }}
               >
-                도면 있음
+                파일 있음
               </span>
             ) : (
               <span
@@ -320,30 +660,30 @@ export default function ProjectDetailPage() {
                   color: "#475569",
                 }}
               >
-                도면 없음
+                파일 없음
               </span>
             )}
           </div>
 
           {!project.floorplan_file_url ? (
-            <div style={styles.emptyBox}>업로드된 도면 파일이 없습니다.</div>
+            <div style={styles.emptyBox}>업로드된 도면 또는 스케치 파일이 없습니다.</div>
           ) : isPdfFloorplan ? (
             <div style={styles.floorplanBox}>
-              <p style={styles.helperText}>PDF 도면 파일입니다.</p>
+              <p style={styles.helperText}>PDF 형식 파일입니다.</p>
               <a
                 href={project.floorplan_file_url}
                 target="_blank"
                 rel="noreferrer"
                 style={styles.linkButton}
               >
-                PDF 도면 열기
+                파일 열기
               </a>
             </div>
           ) : (
             <div style={styles.floorplanBox}>
               <img
                 src={project.floorplan_file_url}
-                alt="업로드된 도면"
+                alt="업로드된 파일"
                 style={styles.floorplanImage}
               />
             </div>
@@ -355,7 +695,7 @@ export default function ProjectDetailPage() {
             <div>
               <h2 style={styles.sectionTitle}>AI 도면 분석</h2>
               <p style={styles.sectionDescription}>
-                도면이 있으면 구조를 읽고, 없으면 입력값 기반으로 기본 정보를 정리하는 단계예요.
+                업종과 입력 방식에 맞춰 공간 구조 또는 기본 요구사항을 해석하는 단계예요.
               </p>
             </div>
 
@@ -412,9 +752,7 @@ export default function ProjectDetailPage() {
               <LayoutPreview2D layout={project.layout_3d_json} />
 
               <details style={styles.detailsBox}>
-                <summary style={styles.detailsSummary}>
-                  원본 JSON 보기
-                </summary>
+                <summary style={styles.detailsSummary}>원본 JSON 보기</summary>
                 <pre style={styles.jsonBox}>
                   {prettyJson(project.layout_3d_json)}
                 </pre>
@@ -436,7 +774,7 @@ const styles: Record<string, CSSProperties> = {
     padding: "40px 20px",
   },
   container: {
-    maxWidth: "980px",
+    maxWidth: "1080px",
     margin: "0 auto",
   },
   headerRow: {
@@ -546,7 +884,7 @@ const styles: Record<string, CSSProperties> = {
     gap: "10px",
     flexWrap: "wrap",
   },
-  floorplanBox: {
+    floorplanBox: {
     border: "1px solid #e2e8f0",
     borderRadius: "16px",
     padding: "16px",
@@ -556,102 +894,5 @@ const styles: Record<string, CSSProperties> = {
     width: "100%",
     maxWidth: "100%",
     borderRadius: "12px",
-    display: "block",
-  },
-  jsonBox: {
-    margin: 0,
-    padding: "16px",
-    backgroundColor: "#0f172a",
-    color: "#e2e8f0",
-    borderRadius: "16px",
-    overflowX: "auto",
-    fontSize: "13px",
-    lineHeight: 1.6,
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-  },
-  emptyBox: {
-    border: "1px dashed #cbd5e1",
-    borderRadius: "16px",
-    padding: "18px",
-    backgroundColor: "#f8fafc",
-    color: "#64748b",
-    fontSize: "14px",
-  },
-  helperText: {
-    marginTop: 0,
-    marginBottom: "12px",
-    color: "#475569",
-    fontSize: "14px",
-  },
-  linkButton: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: "12px",
-    backgroundColor: "#2563eb",
-    color: "#ffffff",
-    padding: "10px 14px",
-    fontSize: "14px",
-    fontWeight: 700,
-    textDecoration: "none",
-  },
-  primaryButton: {
-    border: "none",
-    borderRadius: "12px",
-    backgroundColor: "#2563eb",
-    color: "#ffffff",
-    padding: "12px 18px",
-    fontSize: "14px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  secondaryButton: {
-    border: "1px solid #cbd5e1",
-    borderRadius: "12px",
-    backgroundColor: "#ffffff",
-    color: "#0f172a",
-    padding: "12px 18px",
-    fontSize: "14px",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  errorBox: {
-    marginBottom: "16px",
-    padding: "12px 14px",
-    borderRadius: "12px",
-    backgroundColor: "#fef2f2",
-    color: "#b91c1c",
-    fontSize: "14px",
-    fontWeight: 600,
-    border: "1px solid #fecaca",
-  },
-  successBox: {
-    marginBottom: "16px",
-    padding: "12px 14px",
-    borderRadius: "12px",
-    backgroundColor: "#ecfdf5",
-    color: "#047857",
-    fontSize: "14px",
-    fontWeight: 600,
-    border: "1px solid #a7f3d0",
-  },
-  previewWrap: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-  },
-  detailsBox: {
-    border: "1px solid #e2e8f0",
-    borderRadius: "16px",
-    padding: "14px",
-    backgroundColor: "#ffffff",
-  },
-  detailsSummary: {
-    cursor: "pointer",
-    fontSize: "14px",
-    fontWeight: 700,
-    color: "#0f172a",
-    marginBottom: "12px",
   },
 };
