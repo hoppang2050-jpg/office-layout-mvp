@@ -1,98 +1,83 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 
-type Project = {
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+type OfficeProject = {
   id: number;
   project_name: string;
-  area: number | null;
+  area: string | null;
   headcount: number | null;
   shape: string | null;
   notes: string | null;
   floorplan_file_url: string | null;
-  floorplan_file_name: string | null;
   analysis_status: string | null;
-  floorplan_analysis: Record<string, any> | null;
-  created_at: string;
+  floorplan_analysis: any;
+  layout_status: string | null;
+  layout_3d_json: any;
+  created_at: string | null;
 };
 
 export default function ProjectDetailPage() {
-  const params = useParams();
   const router = useRouter();
-
-  const [project, setProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [deleting, setDeleting] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-
+  const params = useParams();
   const projectId = Number(params?.id);
 
-  useEffect(() => {
+  const [project, setProject] = useState<OfficeProject | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
+
+  const [isRunningAnalysis, setIsRunningAnalysis] = useState(false);
+  const [isGeneratingLayout, setIsGeneratingLayout] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
+
+  const isPdfFloorplan = useMemo(() => {
+    if (!project?.floorplan_file_url) return false;
+    return project.floorplan_file_url.toLowerCase().includes(".pdf");
+  }, [project?.floorplan_file_url]);
+
+  async function loadProject() {
     if (!projectId || Number.isNaN(projectId)) {
-      setErrorMessage("올바른 프로젝트 ID가 아닙니다.");
-      setLoading(false);
+      setPageError("올바른 프로젝트 ID가 아닙니다.");
+      setIsLoading(false);
       return;
     }
 
-    fetchProject(projectId);
-  }, [projectId]);
-
-  const fetchProject = async (id: number) => {
-    setLoading(true);
-    setErrorMessage("");
+    setIsLoading(true);
+    setPageError("");
 
     const { data, error } = await supabase
       .from("office_projects")
-      .select(
-        "id, project_name, area, headcount, shape, notes, floorplan_file_url, floorplan_file_name, analysis_status, floorplan_analysis, created_at"
-      )
-      .eq("id", id)
+      .select("*")
+      .eq("id", projectId)
       .single();
 
     if (error) {
-      setErrorMessage(error.message || "프로젝트 상세 정보를 불러오지 못했습니다.");
+      setPageError(`프로젝트를 불러오지 못했습니다: ${error.message}`);
       setProject(null);
-    } else {
-      setProject(data as Project);
-    }
-
-    setLoading(false);
-  };
-
-  const handleDelete = async () => {
-    if (!project) return;
-
-    const confirmed = window.confirm("이 프로젝트를 삭제할까요?");
-    if (!confirmed) return;
-
-    setDeleting(true);
-    setErrorMessage("");
-
-    const { error } = await supabase
-      .from("office_projects")
-      .delete()
-      .eq("id", project.id);
-
-    if (error) {
-      setErrorMessage(error.message || "프로젝트 삭제 중 오류가 발생했습니다.");
-      setDeleting(false);
+      setIsLoading(false);
       return;
     }
 
-    alert("프로젝트가 삭제되었습니다.");
-    router.push("/projects");
-    router.refresh();
-  };
+    setProject(data as OfficeProject);
+    setIsLoading(false);
+  }
 
-  const handleAnalyze = async () => {
-    if (!project) return;
+  useEffect(() => {
+    loadProject();
+  }, [projectId]);
 
-    setAnalyzing(true);
-    setErrorMessage("");
+  async function handleRunAnalysis() {
+    if (!projectId) return;
+
+    setIsRunningAnalysis(true);
+    setActionMessage("");
 
     try {
       const response = await fetch("/api/analyze-floorplan", {
@@ -100,110 +85,114 @@ export default function ProjectDetailPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          projectId: project.id,
-        }),
+        body: JSON.stringify({ projectId }),
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result?.error || "AI 분석 요청 중 오류가 발생했습니다.");
+        throw new Error(result?.error || "AI 분석 실행 중 오류가 발생했습니다.");
       }
 
-      await fetchProject(project.id);
-      alert("AI 분석 결과가 저장되었습니다.");
+      setActionMessage("AI 도면 분석이 완료되었습니다.");
+      await loadProject();
     } catch (error: any) {
-      setErrorMessage(error?.message || "AI 분석 요청 중 오류가 발생했습니다.");
+      setActionMessage(error?.message || "AI 분석 실행 중 오류가 발생했습니다.");
     } finally {
-      setAnalyzing(false);
+      setIsRunningAnalysis(false);
     }
-  };
+  }
 
-  const fileType = useMemo(() => {
-    const fileUrl = project?.floorplan_file_url?.toLowerCase() ?? "";
-    const fileName = project?.floorplan_file_name?.toLowerCase() ?? "";
-    const target = `${fileUrl} ${fileName}`;
+  async function handleGenerateLayout() {
+    if (!projectId) return;
 
-    if (
-      target.includes(".png") ||
-      target.includes(".jpg") ||
-      target.includes(".jpeg") ||
-      target.includes(".webp")
-    ) {
-      return "image";
+    setIsGeneratingLayout(true);
+    setActionMessage("");
+
+    try {
+      const response = await fetch("/api/generate-layout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projectId }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "3D 배치 생성 중 오류가 발생했습니다.");
+      }
+
+      setActionMessage("3D 배치 생성이 완료되었습니다.");
+      await loadProject();
+    } catch (error: any) {
+      setActionMessage(error?.message || "3D 배치 생성 중 오류가 발생했습니다.");
+    } finally {
+      setIsGeneratingLayout(false);
     }
+  }
 
-    if (target.includes(".pdf")) {
-      return "pdf";
+  function getStatusBadgeStyle(status: string | null): CSSProperties {
+    switch (status) {
+      case "completed":
+        return {
+          ...styles.badge,
+          backgroundColor: "#dcfce7",
+          color: "#166534",
+        };
+      case "processing":
+        return {
+          ...styles.badge,
+          backgroundColor: "#fef3c7",
+          color: "#92400e",
+        };
+      case "failed":
+        return {
+          ...styles.badge,
+          backgroundColor: "#fee2e2",
+          color: "#b91c1c",
+        };
+      default:
+        return {
+          ...styles.badge,
+          backgroundColor: "#e0e7ff",
+          color: "#3730a3",
+        };
     }
+  }
 
-    return "unknown";
-  }, [project]);
-
-  const analysisStatusLabel = useMemo(() => {
-    const status = project?.analysis_status ?? "pending";
-
-    if (status === "completed") return "분석 완료";
-    if (status === "failed") return "분석 실패";
-    if (status === "processing") return "분석 중";
-    return "분석 대기";
-  }, [project]);
-
-  const analysisStatusStyle = useMemo((): CSSProperties => {
-    const status = project?.analysis_status ?? "pending";
-
-    if (status === "completed") {
-      return {
-        ...analysisBadgeBaseStyle,
-        backgroundColor: "#dcfce7",
-        color: "#166534",
-      };
+  function getStatusLabel(status: string | null) {
+    switch (status) {
+      case "completed":
+        return "완료";
+      case "processing":
+        return "처리 중";
+      case "failed":
+        return "실패";
+      default:
+        return "대기";
     }
+  }
 
-    if (status === "failed") {
-      return {
-        ...analysisBadgeBaseStyle,
-        backgroundColor: "#fee2e2",
-        color: "#b91c1c",
-      };
-    }
-
-    if (status === "processing") {
-      return {
-        ...analysisBadgeBaseStyle,
-        backgroundColor: "#fef3c7",
-        color: "#92400e",
-      };
-    }
-
-    return {
-      ...analysisBadgeBaseStyle,
-      backgroundColor: "#dbeafe",
-      color: "#1d4ed8",
-    };
-  }, [project]);
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <main style={pageStyle}>
-        <div style={containerStyle}>
-          <div style={emptyBoxStyle}>프로젝트 상세 정보를 불러오는 중...</div>
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.card}>불러오는 중...</div>
         </div>
       </main>
     );
   }
 
-  if (errorMessage && !project) {
+  if (pageError) {
     return (
-      <main style={pageStyle}>
-        <div style={containerStyle}>
-          <div style={errorBoxStyle}>{errorMessage}</div>
-          <div style={{ marginTop: "16px" }}>
-            <Link href="/projects" style={secondaryButtonStyle}>
-              목록으로 돌아가기
-            </Link>
-          </div>
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.errorBox}>{pageError}</div>
+          <button style={styles.secondaryButton} onClick={() => router.push("/projects")}>
+            목록으로
+          </button>
         </div>
       </main>
     );
@@ -211,505 +200,141 @@ export default function ProjectDetailPage() {
 
   if (!project) {
     return (
-      <main style={pageStyle}>
-        <div style={containerStyle}>
-          <div style={emptyBoxStyle}>프로젝트 정보를 찾을 수 없어요.</div>
-          <div style={{ marginTop: "16px" }}>
-            <Link href="/projects" style={secondaryButtonStyle}>
-              목록으로 돌아가기
-            </Link>
-          </div>
+      <main style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.errorBox}>프로젝트를 찾을 수 없습니다.</div>
+          <button style={styles.secondaryButton} onClick={() => router.push("/projects")}>
+            목록으로
+          </button>
         </div>
       </main>
     );
   }
 
   return (
-    <main style={pageStyle}>
-      <div style={containerStyle}>
-        <div style={topBarStyle}>
+    <main style={styles.page}>
+      <div style={styles.container}>
+        <div style={styles.headerRow}>
           <div>
-            <p style={eyebrowStyle}>PROJECT DETAIL</p>
-            <h1 style={titleStyle}>{project.project_name}</h1>
-            <p style={descriptionStyle}>
-              저장된 프로젝트 정보, 업로드된 도면 파일, AI 분석 상태를 확인할 수 있어요.
+            <p style={styles.eyebrow}>PROJECT DETAIL</p>
+            <h1 style={styles.title}>{project.project_name}</h1>
+            <p style={styles.description}>
+              프로젝트 기본 정보, 도면, AI 분석 결과, 3D 배치 결과를 확인할 수 있어요.
             </p>
           </div>
 
-          <div style={topButtonRowStyle}>
-            <Link href="/projects" style={secondaryButtonStyle}>
-              목록으로
-            </Link>
-            <Link
-              href={`/projects/${project.id}/edit`}
-              style={secondaryButtonStyle}
-            >
-              수정
-            </Link>
-            <Link
-              href={`/projects/${project.id}/layout3d`}
-              style={primaryButtonStyle}
-            >
-              3D 배치도면 만들기
-            </Link>
+          <div style={styles.topButtonRow}>
             <button
               type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              style={dangerButtonStyle}
+              onClick={() => router.push("/projects")}
+              style={styles.secondaryButton}
             >
-              {deleting ? "삭제 중..." : "삭제"}
+              목록으로
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/projects/${project.id}/edit`)}
+              style={styles.primaryButton}
+            >
+              수정
             </button>
           </div>
         </div>
 
-        <section style={cardStyle}>
-          <h2 style={sectionTitleStyle}>프로젝트 기본 정보</h2>
-
-          <div style={infoGridStyle}>
-            <div style={infoCardStyle}>
-              <p style={infoLabelStyle}>프로젝트 이름</p>
-              <p style={infoValueStyle}>{project.project_name}</p>
-            </div>
-
-            <div style={infoCardStyle}>
-              <p style={infoLabelStyle}>면적</p>
-              <p style={infoValueStyle}>
-                {project.area !== null ? `${project.area}㎡` : "-"}
-              </p>
-            </div>
-
-            <div style={infoCardStyle}>
-              <p style={infoLabelStyle}>인원</p>
-              <p style={infoValueStyle}>
-                {project.headcount !== null ? `${project.headcount}명` : "-"}
-              </p>
-            </div>
-
-            <div style={infoCardStyle}>
-              <p style={infoLabelStyle}>공간 형태</p>
-              <p style={infoValueStyle}>{project.shape || "-"}</p>
-            </div>
-
-            <div style={infoCardStyle}>
-              <p style={infoLabelStyle}>생성일</p>
-              <p style={infoValueStyle}>
-                {new Date(project.created_at).toLocaleDateString("ko-KR")}
-              </p>
-            </div>
-
-            <div style={infoCardStyle}>
-              <p style={infoLabelStyle}>도면 파일명</p>
-              <p style={infoValueStyle}>{project.floorplan_file_name || "-"}</p>
-            </div>
+        {actionMessage ? (
+          <div
+            style={
+              actionMessage.includes("오류") || actionMessage.includes("실패")
+                ? styles.errorBox
+                : styles.successBox
+            }
+          >
+            {actionMessage}
           </div>
+        ) : null}
 
-          <div style={noteBoxStyle}>
-            <p style={infoLabelStyle}>추가 요청사항</p>
-            <p style={noteTextStyle}>{project.notes || "-"}</p>
+        <section style={styles.card}>
+          <h2 style={styles.sectionTitle}>기본 정보</h2>
+
+          <div style={styles.infoGrid}>
+            <div style={styles.infoItem}>
+              <div style={styles.infoLabel}>프로젝트명</div>
+              <div style={styles.infoValue}>{project.project_name || "-"}</div>
+            </div>
+
+            <div style={styles.infoItem}>
+              <div style={styles.infoLabel}>면적</div>
+              <div style={styles.infoValue}>{project.area || "-"}</div>
+            </div>
+
+            <div style={styles.infoItem}>
+              <div style={styles.infoLabel}>인원수</div>
+              <div style={styles.infoValue}>
+                {project.headcount !== null && project.headcount !== undefined
+                  ? `${project.headcount}명`
+                  : "-"}
+              </div>
+            </div>
+
+            <div style={styles.infoItem}>
+              <div style={styles.infoLabel}>공간 형태</div>
+              <div style={styles.infoValue}>{project.shape || "-"}</div>
+            </div>
+
+            <div style={styles.infoItemWide}>
+              <div style={styles.infoLabel}>추가 요청사항</div>
+              <div style={styles.infoValue}>{project.notes || "-"}</div>
+            </div>
           </div>
         </section>
 
-        <section style={cardStyle}>
-          <div style={analysisHeaderStyle}>
-            <h2 style={sectionTitleStyle}>AI 도면 분석</h2>
-            <div style={analysisRightBoxStyle}>
-              <span style={analysisStatusStyle}>{analysisStatusLabel}</span>
-              <button
-                type="button"
-                onClick={handleAnalyze}
-                disabled={analyzing}
-                style={analyzeButtonStyle}
-              >
-                {analyzing ? "분석 중..." : "AI 분석 실행"}
-              </button>
-            </div>
+        <section style={styles.card}>
+          <div style={styles.sectionHeaderRow}>
+            <h2 style={styles.sectionTitle}>도면 파일</h2>
+            {project.floorplan_file_url ? (
+              <span style={{ ...styles.badge, backgroundColor: "#dbeafe", color: "#1d4ed8" }}>
+                도면 있음
+              </span>
+            ) : (
+              <span style={{ ...styles.badge, backgroundColor: "#f1f5f9", color: "#475569" }}>
+                도면 없음
+              </span>
+            )}
           </div>
-
-          {errorMessage ? <div style={errorBoxStyle}>{errorMessage}</div> : null}
-
-          {!project.floorplan_analysis ? (
-            <div style={analysisPendingBoxStyle}>
-              <p style={analysisPendingTitleStyle}>
-                아직 AI 분석 결과가 저장되지 않았어요.
-              </p>
-              <p style={analysisPendingTextStyle}>
-                현재 상태는 <strong>{project.analysis_status ?? "pending"}</strong> 입니다.
-                버튼을 누르면 가짜 분석 API가 실행되고, 다음 단계에서 이 자리를
-                실제 OpenAI Vision 분석 결과로 바꾸게 됩니다.
-              </p>
-            </div>
-          ) : (
-            <div style={analysisResultBoxStyle}>
-              <p style={analysisResultTitleStyle}>저장된 분석 결과(JSON)</p>
-              <pre style={analysisPreStyle}>
-                {JSON.stringify(project.floorplan_analysis, null, 2)}
-              </pre>
-            </div>
-          )}
-        </section>
-
-        <section style={cardStyle}>
-          <h2 style={sectionTitleStyle}>업로드된 도면 파일</h2>
 
           {!project.floorplan_file_url ? (
-            <div style={emptyBoxStyle}>업로드된 도면 파일이 없어요.</div>
-          ) : fileType === "image" ? (
-            <div style={previewWrapperStyle}>
-              <img
-                src={project.floorplan_file_url}
-                alt={project.floorplan_file_name || "업로드된 도면 이미지"}
-                style={previewImageStyle}
-              />
-
-              <div style={fileButtonRowStyle}>
-                <a
-                  href={project.floorplan_file_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={secondaryButtonStyle}
-                >
-                  새 탭에서 열기
-                </a>
-                <a
-                  href={project.floorplan_file_url}
-                  download
-                  style={primaryButtonStyle}
-                >
-                  이미지 다운로드
-                </a>
-              </div>
-            </div>
-          ) : fileType === "pdf" ? (
-            <div style={pdfBoxStyle}>
-              <p style={pdfTextStyle}>PDF 도면 파일이 업로드되어 있어요.</p>
-              <div style={fileButtonRowStyle}>
-                <a
-                  href={project.floorplan_file_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={secondaryButtonStyle}
-                >
-                  PDF 열기
-                </a>
-                <a
-                  href={project.floorplan_file_url}
-                  download
-                  style={primaryButtonStyle}
-                >
-                  PDF 다운로드
-                </a>
-              </div>
+            <div style={styles.emptyBox}>업로드된 도면 파일이 없습니다.</div>
+          ) : isPdfFloorplan ? (
+            <div style={styles.floorplanBox}>
+              <p style={styles.helperText}>PDF 도면 파일입니다.</p>
+              <a
+                href={project.floorplan_file_url}
+                target="_blank"
+                rel="noreferrer"
+                style={styles.linkButton}
+              >
+                PDF 도면 열기
+              </a>
             </div>
           ) : (
-            <div style={pdfBoxStyle}>
-              <p style={pdfTextStyle}>
-                도면 파일이 업로드되어 있어요. 아래 버튼으로 열거나 내려받을 수 있어요.
-              </p>
-              <div style={fileButtonRowStyle}>
-                <a
-                  href={project.floorplan_file_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={secondaryButtonStyle}
-                >
-                  파일 열기
-                </a>
-                <a
-                  href={project.floorplan_file_url}
-                  download
-                  style={primaryButtonStyle}
-                >
-                  파일 다운로드
-                </a>
-              </div>
+            <div style={styles.floorplanBox}>
+              <img
+                src={project.floorplan_file_url}
+                alt="업로드된 도면"
+                style={styles.floorplanImage}
+              />
             </div>
           )}
         </section>
-      </div>
-    </main>
-  );
-}
 
-const pageStyle: CSSProperties = {
-  minHeight: "100vh",
-  background:
-    "linear-gradient(180deg, #f8fbff 0%, #eef4ff 50%, #f8fafc 100%)",
-  padding: "40px 20px",
-};
+        <section style={styles.card}>
+          <div style={styles.sectionHeaderRow}>
+            <div>
+              <h2 style={styles.sectionTitle}>AI 도면 분석</h2>
+              <p style={styles.sectionDescription}>
+                도면이 있으면 구조를 읽고, 없으면 입력값 기반으로 기본 정보를 정리하는 단계예요.
+              </p>
+            </div>
 
-const containerStyle: CSSProperties = {
-  maxWidth: "1100px",
-  margin: "0 auto",
-};
-
-const topBarStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: "16px",
-  flexWrap: "wrap",
-  marginBottom: "24px",
-};
-
-const eyebrowStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "12px",
-  fontWeight: 700,
-  letterSpacing: "0.12em",
-  color: "#2563eb",
-};
-
-const titleStyle: CSSProperties = {
-  margin: "8px 0",
-  fontSize: "34px",
-  fontWeight: 800,
-  color: "#0f172a",
-};
-
-const descriptionStyle: CSSProperties = {
-  margin: 0,
-  color: "#475569",
-  fontSize: "15px",
-  lineHeight: 1.6,
-};
-
-const topButtonRowStyle: CSSProperties = {
-  display: "flex",
-  gap: "10px",
-  flexWrap: "wrap",
-};
-
-const cardStyle: CSSProperties = {
-  backgroundColor: "#ffffff",
-  border: "1px solid #e2e8f0",
-  borderRadius: "20px",
-  padding: "24px",
-  boxShadow: "0 12px 30px rgba(15, 23, 42, 0.06)",
-  marginBottom: "20px",
-};
-
-const sectionTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "22px",
-  fontWeight: 800,
-  color: "#0f172a",
-};
-
-const infoGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "14px",
-};
-
-const infoCardStyle: CSSProperties = {
-  border: "1px solid #e2e8f0",
-  borderRadius: "16px",
-  padding: "16px",
-  backgroundColor: "#f8fafc",
-};
-
-const infoLabelStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "13px",
-  color: "#64748b",
-  fontWeight: 700,
-};
-
-const infoValueStyle: CSSProperties = {
-  margin: "8px 0 0",
-  fontSize: "18px",
-  color: "#0f172a",
-  fontWeight: 700,
-  lineHeight: 1.5,
-  wordBreak: "break-word",
-};
-
-const noteBoxStyle: CSSProperties = {
-  marginTop: "16px",
-  border: "1px solid #e2e8f0",
-  borderRadius: "16px",
-  padding: "16px",
-  backgroundColor: "#ffffff",
-};
-
-const noteTextStyle: CSSProperties = {
-  margin: "8px 0 0",
-  color: "#334155",
-  fontSize: "15px",
-  lineHeight: 1.7,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-};
-
-const analysisHeaderStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "12px",
-  flexWrap: "wrap",
-  marginBottom: "16px",
-};
-
-const analysisRightBoxStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "10px",
-  flexWrap: "wrap",
-};
-
-const analysisBadgeBaseStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "8px 12px",
-  borderRadius: "999px",
-  fontSize: "13px",
-  fontWeight: 800,
-};
-
-const analyzeButtonStyle: CSSProperties = {
-  border: "none",
-  borderRadius: "12px",
-  backgroundColor: "#0f172a",
-  color: "#ffffff",
-  padding: "10px 14px",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const analysisPendingBoxStyle: CSSProperties = {
-  border: "1px solid #dbeafe",
-  backgroundColor: "#f8fbff",
-  borderRadius: "16px",
-  padding: "18px",
-};
-
-const analysisPendingTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "15px",
-  fontWeight: 800,
-  color: "#1d4ed8",
-};
-
-const analysisPendingTextStyle: CSSProperties = {
-  margin: "8px 0 0",
-  color: "#334155",
-  fontSize: "14px",
-  lineHeight: 1.7,
-};
-
-const analysisResultBoxStyle: CSSProperties = {
-  border: "1px solid #dbe4f0",
-  backgroundColor: "#f8fafc",
-  borderRadius: "16px",
-  padding: "18px",
-};
-
-const analysisResultTitleStyle: CSSProperties = {
-  margin: "0 0 12px",
-  fontSize: "15px",
-  fontWeight: 800,
-  color: "#0f172a",
-};
-
-const analysisPreStyle: CSSProperties = {
-  margin: 0,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-  fontSize: "13px",
-  lineHeight: 1.7,
-  color: "#0f172a",
-  backgroundColor: "#ffffff",
-  border: "1px solid #e2e8f0",
-  borderRadius: "12px",
-  padding: "14px",
-};
-
-const previewWrapperStyle: CSSProperties = {
-  display: "grid",
-  gap: "16px",
-};
-
-const previewImageStyle: CSSProperties = {
-  width: "100%",
-  maxWidth: "100%",
-  borderRadius: "16px",
-  border: "1px solid #dbe4f0",
-  backgroundColor: "#f8fafc",
-};
-
-const fileButtonRowStyle: CSSProperties = {
-  display: "flex",
-  gap: "10px",
-  flexWrap: "wrap",
-};
-
-const pdfBoxStyle: CSSProperties = {
-  border: "1px solid #dbe4f0",
-  borderRadius: "16px",
-  padding: "20px",
-  backgroundColor: "#f8fafc",
-};
-
-const pdfTextStyle: CSSProperties = {
-  margin: "0 0 14px",
-  color: "#334155",
-  fontSize: "15px",
-  lineHeight: 1.6,
-};
-
-const primaryButtonStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "11px 15px",
-  borderRadius: "12px",
-  backgroundColor: "#2563eb",
-  color: "#ffffff",
-  fontWeight: 700,
-  textDecoration: "none",
-  border: "none",
-};
-
-const secondaryButtonStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "11px 15px",
-  borderRadius: "12px",
-  backgroundColor: "#ffffff",
-  color: "#0f172a",
-  fontWeight: 700,
-  textDecoration: "none",
-  border: "1px solid #cbd5e1",
-};
-
-const dangerButtonStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "11px 15px",
-  borderRadius: "12px",
-  backgroundColor: "#ef4444",
-  color: "#ffffff",
-  fontWeight: 700,
-  border: "none",
-  cursor: "pointer",
-};
-
-const emptyBoxStyle: CSSProperties = {
-  backgroundColor: "#ffffff",
-  border: "1px dashed #cbd5e1",
-  borderRadius: "16px",
-  padding: "28px",
-  textAlign: "center",
-  color: "#475569",
-};
-
-const errorBoxStyle: CSSProperties = {
-  backgroundColor: "#fef2f2",
-  border: "1px solid #fecaca",
-  borderRadius: "16px",
-  padding: "16px",
-  color: "#b91c1c",
-};
+            <div style={styles.actionArea}>
+              <span style
