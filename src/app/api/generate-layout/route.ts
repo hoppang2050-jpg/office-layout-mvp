@@ -12,6 +12,18 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: JsonValue }
+  | JsonValue[];
+
+type RequirementsJson = {
+  [key: string]: JsonValue;
+} | null;
+
 type OfficeProjectRow = {
   id: number;
   project_name: string | null;
@@ -22,596 +34,665 @@ type OfficeProjectRow = {
   space_type: string | null;
   space_type_detail: string | null;
   input_mode: string | null;
+  requirements_json: RequirementsJson;
+};
+
+type LayoutSpace = {
+  width: number;
+  height: number;
+  unit: "m";
+  shape: string;
 };
 
 type LayoutZone = {
+  id: string;
   type: string;
+  label: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  seats?: number;
+  color: string;
+  meta?: {
+    capacity?: number;
+    note?: string;
+  };
 };
 
 type LayoutFurniture = {
+  id: string;
   type: string;
-  count?: number;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
 };
 
 type Layout3DJson = {
-  version: number;
-  unit: "meter";
-  project_context: {
+  version: string;
+  generated_at: string;
+  project_summary: {
     project_id: number;
     project_name: string | null;
     space_type: string | null;
-    space_type_detail: string | null;
-    input_mode: string | null;
+    space_type_label: string;
     area: string | null;
     headcount: number | null;
     shape: string | null;
+    input_mode: string | null;
   };
-  space: {
-    width: number;
-    height: number;
-    shape: string;
-  };
+  space: LayoutSpace;
   zones: LayoutZone[];
-  furniture: LayoutFurniture[];
   assumptions: string[];
+  warnings: string[];
+  requirements_snapshot: RequirementsJson;
 };
 
-function round1(value: number) {
+function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-function parseArea(area: string | null) {
-  if (!area) return null;
-  const numeric = Number(String(area).replace(/[^\d.]/g, ""));
-  return Number.isNaN(numeric) ? null : numeric;
-}
-
-function clamp(value: number, min: number, max: number) {
+function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function buildSpaceDimensions(spaceType: string | null, areaValue: number | null) {
-  const fallbackMap: Record<string, { width: number; height: number }> = {
-    office: { width: 12, height: 8 },
-    cafe: { width: 10, height: 8 },
-    restaurant: { width: 14, height: 9 },
-    fitness: { width: 16, height: 10 },
-    retail: { width: 13, height: 9 },
-    other: { width: 12, height: 8 },
-  };
-
-  const aspectRatioMap: Record<string, number> = {
-    office: 1.5,
-    cafe: 1.3,
-    restaurant: 1.45,
-    fitness: 1.6,
-    retail: 1.4,
-    other: 1.5,
-  };
-
-  const fallback = fallbackMap[spaceType || "other"] || fallbackMap.other;
-  const aspectRatio = aspectRatioMap[spaceType || "other"] || aspectRatioMap.other;
-
-  if (!areaValue || areaValue <= 0) {
-    return fallback;
-  }
-
-  const width = round1(Math.sqrt(areaValue * aspectRatio));
-  const height = round1(areaValue / width);
-
-  return {
-    width: clamp(width, 8, 30),
-    height: clamp(height, 6, 20),
-  };
+function parseArea(area: string | null): number | null {
+  if (!area) return null;
+  const num = Number(String(area).replace(/[^\d.]/g, ""));
+  return Number.isNaN(num) ? null : num;
 }
 
-function buildOfficeLayout(
-  width: number,
-  height: number,
-  headcount: number
-): { zones: LayoutZone[]; furniture: LayoutFurniture[]; assumptions: string[] } {
-  const seatCount = headcount > 0 ? headcount : 12;
-  const meetingSeats = clamp(Math.round(seatCount * 0.35), 4, 10);
-
-  const zones: LayoutZone[] = [
-    {
-      type: "reception",
-      x: round1(width * 0.05),
-      y: round1(height * 0.06),
-      width: round1(width * 0.18),
-      height: round1(height * 0.14),
-      seats: 2,
-    },
-    {
-      type: "open_office",
-      x: round1(width * 0.05),
-      y: round1(height * 0.26),
-      width: round1(width * 0.56),
-      height: round1(height * 0.46),
-      seats: seatCount,
-    },
-    {
-      type: "meeting_room",
-      x: round1(width * 0.66),
-      y: round1(height * 0.08),
-      width: round1(width * 0.27),
-      height: round1(height * 0.24),
-      seats: meetingSeats,
-    },
-    {
-      type: "focus_room",
-      x: round1(width * 0.66),
-      y: round1(height * 0.37),
-      width: round1(width * 0.12),
-      height: round1(height * 0.18),
-      seats: 2,
-    },
-    {
-      type: "pantry",
-      x: round1(width * 0.80),
-      y: round1(height * 0.37),
-      width: round1(width * 0.13),
-      height: round1(height * 0.18),
-    },
-    {
-      type: "lounge",
-      x: round1(width * 0.34),
-      y: round1(height * 0.76),
-      width: round1(width * 0.28),
-      height: round1(height * 0.16),
-      seats: clamp(Math.round(seatCount * 0.25), 4, 8),
-    },
-  ];
-
-  const furniture: LayoutFurniture[] = [
-    { type: "desk", count: seatCount },
-    { type: "task_chair", count: seatCount },
-    { type: "meeting_table", count: 1 },
-    { type: "meeting_chair", count: meetingSeats },
-    { type: "sofa", count: 2 },
-    { type: "pantry_counter", count: 1 },
-    { type: "storage_cabinet", count: 2 },
-  ];
-
-  const assumptions = [
-    "사무실 기본 배치: 오픈오피스 중심 + 회의실 + 포커스룸 + 라운지 + 탕비존",
-    "입구 근처에 리셉션을 두고 업무존은 상대적으로 안쪽에 배치",
-    "실제 시공도면이 아닌 MVP용 mock 레이아웃이며 업종별 차별화에 초점을 둠",
-  ];
-
-  return { zones, furniture, assumptions };
-}
-
-function buildCafeLayout(
-  width: number,
-  height: number,
-  headcount: number
-): { zones: LayoutZone[]; furniture: LayoutFurniture[]; assumptions: string[] } {
-  const seatCount = headcount > 0 ? headcount : 24;
-
-  const zones: LayoutZone[] = [
-    {
-      type: "counter_bar",
-      x: round1(width * 0.62),
-      y: round1(height * 0.08),
-      width: round1(width * 0.28),
-      height: round1(height * 0.18),
-      seats: 4,
-    },
-    {
-      type: "pickup_zone",
-      x: round1(width * 0.62),
-      y: round1(height * 0.29),
-      width: round1(width * 0.18),
-      height: round1(height * 0.12),
-    },
-    {
-      type: "communal_seating",
-      x: round1(width * 0.10),
-      y: round1(height * 0.22),
-      width: round1(width * 0.42),
-      height: round1(height * 0.34),
-      seats: clamp(Math.round(seatCount * 0.45), 8, 16),
-    },
-    {
-      type: "window_seating",
-      x: round1(width * 0.10),
-      y: round1(height * 0.64),
-      width: round1(width * 0.50),
-      height: round1(height * 0.18),
-      seats: clamp(Math.round(seatCount * 0.35), 6, 12),
-    },
-    {
-      type: "photo_spot",
-      x: round1(width * 0.64),
-      y: round1(height * 0.48),
-      width: round1(width * 0.22),
-      height: round1(height * 0.16),
-      seats: 2,
-    },
-    {
-      type: "back_prep",
-      x: round1(width * 0.74),
-      y: round1(height * 0.68),
-      width: round1(width * 0.16),
-      height: round1(height * 0.14),
-    },
-  ];
-
-  const furniture: LayoutFurniture[] = [
-    { type: "two_person_table", count: 4 },
-    { type: "four_person_table", count: 2 },
-    { type: "bar_stool", count: 4 },
-    { type: "lounge_chair", count: 4 },
-    { type: "service_counter", count: 1 },
-    { type: "pendant_light_cluster", count: 2 },
-  ];
-
-  const assumptions = [
-    "카페 기본 배치: 카운터/픽업/창가좌석/공용좌석/포토스팟 중심",
-    "입구에서 카운터 인지성이 높고, 체류형 좌석과 회전형 좌석을 혼합",
-    "브랜드 무드와 사진 포인트를 고려한 mock 레이아웃",
-  ];
-
-  return { zones, furniture, assumptions };
-}
-
-function buildRestaurantLayout(
-  width: number,
-  height: number,
-  headcount: number
-): { zones: LayoutZone[]; furniture: LayoutFurniture[]; assumptions: string[] } {
-  const seatCount = headcount > 0 ? headcount : 32;
-
-  const zones: LayoutZone[] = [
-    {
-      type: "waiting_area",
-      x: round1(width * 0.05),
-      y: round1(height * 0.08),
-      width: round1(width * 0.16),
-      height: round1(height * 0.14),
-      seats: 4,
-    },
-    {
-      type: "cashier",
-      x: round1(width * 0.24),
-      y: round1(height * 0.08),
-      width: round1(width * 0.12),
-      height: round1(height * 0.12),
-    },
-    {
-      type: "dining_hall",
-      x: round1(width * 0.06),
-      y: round1(height * 0.28),
-      width: round1(width * 0.54),
-      height: round1(height * 0.56),
-      seats: seatCount,
-    },
-    {
-      type: "private_dining",
-      x: round1(width * 0.64),
-      y: round1(height * 0.28),
-      width: round1(width * 0.22),
-      height: round1(height * 0.18),
-      seats: 8,
-    },
-    {
-      type: "service_station",
-      x: round1(width * 0.64),
-      y: round1(height * 0.52),
-      width: round1(width * 0.10),
-      height: round1(height * 0.12),
-    },
-    {
-      type: "kitchen",
-      x: round1(width * 0.76),
-      y: round1(height * 0.50),
-      width: round1(width * 0.18),
-      height: round1(height * 0.28),
-    },
-  ];
-
-  const furniture: LayoutFurniture[] = [
-    { type: "two_person_table", count: 4 },
-    { type: "four_person_table", count: 4 },
-    { type: "banquette_seat", count: 2 },
-    { type: "host_stand", count: 1 },
-    { type: "service_cart", count: 1 },
-    { type: "kitchen_line", count: 1 },
-  ];
-
-  const assumptions = [
-    "식당 기본 배치: 대기존 + 캐셔 + 홀 + 서비스 스테이션 + 주방",
-    "입구 혼잡을 줄이기 위해 대기존을 분리하고 홀/주방 동선을 짧게 구성",
-    "운영 효율과 분위기를 동시에 고려한 mock 레이아웃",
-  ];
-
-  return { zones, furniture, assumptions };
-}
-
-function buildFitnessLayout(
-  width: number,
-  height: number,
-  headcount: number
-): { zones: LayoutZone[]; furniture: LayoutFurniture[]; assumptions: string[] } {
-  const activeUsers = headcount > 0 ? headcount : 20;
-
-  const zones: LayoutZone[] = [
-    {
-      type: "reception",
-      x: round1(width * 0.05),
-      y: round1(height * 0.08),
-      width: round1(width * 0.16),
-      height: round1(height * 0.14),
-      seats: 2,
-    },
-    {
-      type: "cardio_zone",
-      x: round1(width * 0.06),
-      y: round1(height * 0.28),
-      width: round1(width * 0.28),
-      height: round1(height * 0.48),
-      seats: clamp(Math.round(activeUsers * 0.35), 6, 12),
-    },
-    {
-      type: "weight_zone",
-      x: round1(width * 0.38),
-      y: round1(height * 0.28),
-      width: round1(width * 0.34),
-      height: round1(height * 0.48),
-      seats: clamp(Math.round(activeUsers * 0.4), 6, 14),
-    },
-    {
-      type: "stretching_zone",
-      x: round1(width * 0.76),
-      y: round1(height * 0.28),
-      width: round1(width * 0.16),
-      height: round1(height * 0.22),
-      seats: 6,
-    },
-    {
-      type: "consultation",
-      x: round1(width * 0.76),
-      y: round1(height * 0.54),
-      width: round1(width * 0.16),
-      height: round1(height * 0.12),
-      seats: 2,
-    },
-    {
-      type: "locker_zone",
-      x: round1(width * 0.76),
-      y: round1(height * 0.70),
-      width: round1(width * 0.16),
-      height: round1(height * 0.14),
-    },
-  ];
-
-  const furniture: LayoutFurniture[] = [
-    { type: "treadmill", count: 4 },
-    { type: "bike", count: 2 },
-    { type: "weight_machine", count: 6 },
-    { type: "bench", count: 3 },
-    { type: "mirror_wall", count: 2 },
-    { type: "locker", count: 16 },
-  ];
-
-  const assumptions = [
-    "피트니스 기본 배치: 유산소존 + 웨이트존 + 스트레칭존 + 상담존 + 락커존",
-    "운동 강도별로 존을 나누고, 입구 쪽에는 리셉션/상담을 배치",
-    "안전 동선과 시선 개방감을 고려한 mock 레이아웃",
-  ];
-
-  return { zones, furniture, assumptions };
-}
-
-function buildRetailLayout(
-  width: number,
-  height: number,
-  headcount: number
-): { zones: LayoutZone[]; furniture: LayoutFurniture[]; assumptions: string[] } {
-  const visitors = headcount > 0 ? headcount : 12;
-
-  const zones: LayoutZone[] = [
-    {
-      type: "feature_display",
-      x: round1(width * 0.10),
-      y: round1(height * 0.10),
-      width: round1(width * 0.28),
-      height: round1(height * 0.20),
-      seats: 2,
-    },
-    {
-      type: "wall_display",
-      x: round1(width * 0.08),
-      y: round1(height * 0.38),
-      width: round1(width * 0.22),
-      height: round1(height * 0.40),
-    },
-    {
-      type: "experience_zone",
-      x: round1(width * 0.36),
-      y: round1(height * 0.28),
-      width: round1(width * 0.30),
-      height: round1(height * 0.40),
-      seats: clamp(Math.round(visitors * 0.35), 4, 8),
-    },
-    {
-      type: "cashier",
-      x: round1(width * 0.72),
-      y: round1(height * 0.12),
-      width: round1(width * 0.16),
-      height: round1(height * 0.14),
-    },
-    {
-      type: "consultation",
-      x: round1(width * 0.72),
-      y: round1(height * 0.34),
-      width: round1(width * 0.16),
-      height: round1(height * 0.16),
-      seats: 3,
-    },
-    {
-      type: "storage",
-      x: round1(width * 0.72),
-      y: round1(height * 0.58),
-      width: round1(width * 0.16),
-      height: round1(height * 0.18),
-    },
-  ];
-
-  const furniture: LayoutFurniture[] = [
-    { type: "display_rack", count: 6 },
-    { type: "feature_table", count: 2 },
-    { type: "cash_wrap", count: 1 },
-    { type: "consultation_table", count: 1 },
-    { type: "mirror", count: 2 },
-    { type: "back_storage_shelf", count: 3 },
-  ];
-
-  const assumptions = [
-    "매장/쇼룸 기본 배치: 메인 진열존 + 체험존 + 카운터 + 상담존 + 재고존",
-    "입구에서 대표 상품이 보이도록 포컬 포인트를 앞쪽에 배치",
-    "고객 체류 경험과 판매 동선을 함께 고려한 mock 레이아웃",
-  ];
-
-  return { zones, furniture, assumptions };
-}
-
-function buildOtherLayout(
-  width: number,
-  height: number,
-  headcount: number,
-  detail: string | null
-): { zones: LayoutZone[]; furniture: LayoutFurniture[]; assumptions: string[] } {
-  const users = headcount > 0 ? headcount : 10;
-
-  const zones: LayoutZone[] = [
-    {
-      type: "main_area",
-      x: round1(width * 0.08),
-      y: round1(height * 0.18),
-      width: round1(width * 0.46),
-      height: round1(height * 0.52),
-      seats: users,
-    },
-    {
-      type: "service_area",
-      x: round1(width * 0.60),
-      y: round1(height * 0.18),
-      width: round1(width * 0.24),
-      height: round1(height * 0.22),
-    },
-    {
-      type: "support_area",
-      x: round1(width * 0.60),
-      y: round1(height * 0.46),
-      width: round1(width * 0.24),
-      height: round1(height * 0.18),
-    },
-    {
-      type: "lounge",
-      x: round1(width * 0.24),
-      y: round1(height * 0.76),
-      width: round1(width * 0.28),
-      height: round1(height * 0.14),
-      seats: 4,
-    },
-  ];
-
-  const furniture: LayoutFurniture[] = [
-    { type: "modular_table", count: 4 },
-    { type: "chair", count: users },
-    { type: "storage_unit", count: 2 },
-    { type: "sofa", count: 1 },
-  ];
-
-  const assumptions = [
-    `기타 업종(${detail?.trim() || "세부 미입력"}) 기준의 범용 commercial mock 레이아웃`,
-    "주요 활동 공간 + 서비스 공간 + 보조 공간 + 라운지로 단순화",
-    "세부 업종이 정교해지면 향후 전용 배치 규칙으로 확장 가능",
-  ];
-
-  return { zones, furniture, assumptions };
-}
-
-function buildMockLayout3D(project: OfficeProjectRow): Layout3DJson {
-  const areaValue = parseArea(project.area);
-  const widthHeight = buildSpaceDimensions(project.space_type, areaValue);
-  const width = widthHeight.width;
-  const height = widthHeight.height;
-  const headcount = project.headcount ?? 0;
-
-  let layoutResult:
-    | { zones: LayoutZone[]; furniture: LayoutFurniture[]; assumptions: string[] }
-    | undefined;
-
-  switch (project.space_type) {
+function getSpaceTypeLabel(
+  spaceType: string | null,
+  detail?: string | null
+): string {
+  switch (spaceType) {
     case "office":
-      layoutResult = buildOfficeLayout(width, height, headcount);
-      break;
+      return "사무실";
     case "cafe":
-      layoutResult = buildCafeLayout(width, height, headcount);
-      break;
+      return "카페";
     case "restaurant":
-      layoutResult = buildRestaurantLayout(width, height, headcount);
-      break;
+      return "식당";
     case "fitness":
-      layoutResult = buildFitnessLayout(width, height, headcount);
-      break;
+      return "피트니스";
     case "retail":
-      layoutResult = buildRetailLayout(width, height, headcount);
-      break;
+      return "리테일";
+    case "other":
+      return detail?.trim() || "기타";
     default:
-      layoutResult = buildOtherLayout(
-        width,
-        height,
-        headcount,
-        project.space_type_detail
-      );
-      break;
+      return detail?.trim() || "공간";
   }
+}
+
+function buildSpaceDimensions(
+  areaValue: number | null,
+  shape: string | null
+): LayoutSpace {
+  const safeArea = areaValue && areaValue > 0 ? areaValue : 120;
+
+  let ratio = 1.4;
+  if (shape?.includes("정사각")) ratio = 1.0;
+  if (shape?.includes("직사각")) ratio = 1.6;
+  if (shape?.includes("긴")) ratio = 2.0;
+
+  const width = Math.sqrt(safeArea * ratio);
+  const height = safeArea / width;
 
   return {
-    version: 2,
-    unit: "meter",
-    project_context: {
-      project_id: project.id,
-      project_name: project.project_name,
-      space_type: project.space_type,
-      space_type_detail: project.space_type_detail,
-      input_mode: project.input_mode,
-      area: project.area,
-      headcount: project.headcount,
-      shape: project.shape,
-    },
-    space: {
-      width,
-      height,
-      shape: project.shape || "rectangle",
-    },
-    zones: layoutResult.zones,
-    furniture: layoutResult.furniture,
+    width: round1(clamp(width, 8, 40)),
+    height: round1(clamp(height, 6, 30)),
+    unit: "m",
+    shape: shape || "직사각형",
+  };
+}
+
+function zoneColor(type: string): string {
+  switch (type) {
+    case "reception":
+      return "#FDE68A";
+    case "open_office":
+      return "#BFDBFE";
+    case "meeting_room":
+      return "#C4B5FD";
+    case "focus_room":
+      return "#A7F3D0";
+    case "pantry":
+      return "#FBCFE8";
+    case "counter":
+      return "#FDE68A";
+    case "bar":
+      return "#FCA5A5";
+    case "seating":
+      return "#BFDBFE";
+    case "pickup":
+      return "#A7F3D0";
+    case "kitchen":
+      return "#FCA5A5";
+    case "hall":
+      return "#BFDBFE";
+    case "waiting":
+      return "#DDD6FE";
+    case "cardio":
+      return "#BFDBFE";
+    case "weights":
+      return "#FCA5A5";
+    case "stretch":
+      return "#A7F3D0";
+    case "display":
+      return "#BFDBFE";
+    case "promo":
+      return "#FDE68A";
+    case "cashier":
+      return "#FCA5A5";
+    case "storage":
+      return "#D1D5DB";
+    default:
+      return "#E5E7EB";
+  }
+}
+
+function createZone(
+  space: LayoutSpace,
+  id: string,
+  type: string,
+  label: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  meta?: LayoutZone["meta"]
+): LayoutZone {
+  const safeX = round1(clamp(x, 0, space.width - 1));
+  const safeY = round1(clamp(y, 0, space.height - 1));
+  const safeWidth = round1(clamp(width, 1, space.width - safeX));
+  const safeHeight = round1(clamp(height, 1, space.height - safeY));
+
+  return {
+    id,
+    type,
+    label,
+    x: safeX,
+    y: safeY,
+    width: safeWidth,
+    height: safeHeight,
+    color: zoneColor(type),
+    meta,
+  };
+}
+
+function createFurniture(
+  space: LayoutSpace,
+  id: string,
+  type: string,
+  label: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  rotation = 0
+): LayoutFurniture {
+  const safeX = round1(clamp(x, 0, space.width - 0.5));
+  const safeY = round1(clamp(y, 0, space.height - 0.5));
+  const safeWidth = round1(clamp(width, 0.4, space.width - safeX));
+  const safeHeight = round1(clamp(height, 0.4, space.height - safeY));
+
+  return {
+    id,
+    type,
+    label,
+    x: safeX,
+    y: safeY,
+    width: safeWidth,
+    height: safeHeight,
+    rotation,
+  };
+}
+
+function buildOfficeLayout(project: OfficeProjectRow, space: LayoutSpace) {
+  const pad = 0.6;
+  const iw = space.width - pad * 2;
+  const ih = space.height - pad * 2;
+  const staff = project.headcount ?? 12;
+
+  const zones: LayoutZone[] = [
+    createZone(
+      space,
+      "zone-reception",
+      "reception",
+      "리셉션",
+      pad,
+      pad,
+      iw * 0.22,
+      ih * 0.18,
+      { note: "방문객 응대" }
+    ),
+    createZone(
+      space,
+      "zone-meeting",
+      "meeting_room",
+      "회의실",
+      pad + iw * 0.72,
+      pad,
+      iw * 0.28,
+      ih * 0.24,
+      { capacity: Math.max(4, Math.round(staff * 0.2)) }
+    ),
+    createZone(
+      space,
+      "zone-focus",
+      "focus_room",
+      "집중 업무실",
+      pad,
+      pad + ih * 0.72,
+      iw * 0.24,
+      ih * 0.28
+    ),
+    createZone(
+      space,
+      "zone-pantry",
+      "pantry",
+      "팬트리 / 라운지",
+      pad + iw * 0.76,
+      pad + ih * 0.78,
+      iw * 0.24,
+      ih * 0.22
+    ),
+    createZone(
+      space,
+      "zone-open-office",
+      "open_office",
+      "오픈 업무존",
+      pad + iw * 0.26,
+      pad + ih * 0.22,
+      iw * 0.46,
+      ih * 0.54,
+      { capacity: staff }
+    ),
+  ];
+
+  const deskCount = Math.max(4, Math.min(staff, 24));
+  const deskCols = Math.max(2, Math.ceil(Math.sqrt(deskCount / 2)));
+  const deskRows = Math.ceil(deskCount / deskCols);
+
+  const openZone = zones.find((z) => z.id === "zone-open-office")!;
+  const furniture: LayoutFurniture[] = [];
+
+  let deskIndex = 1;
+  for (let r = 0; r < deskRows; r += 1) {
+    for (let c = 0; c < deskCols; c += 1) {
+      if (deskIndex > deskCount) break;
+
+      const fx =
+        openZone.x + 0.6 + c * ((openZone.width - 1.2) / Math.max(deskCols, 1));
+      const fy =
+        openZone.y + 0.6 + r * ((openZone.height - 1.2) / Math.max(deskRows, 1));
+
+      furniture.push(
+        createFurniture(
+          space,
+          `desk-${deskIndex}`,
+          "desk",
+          `업무데스크 ${deskIndex}`,
+          fx,
+          fy,
+          1.2,
+          0.6
+        )
+      );
+
+      deskIndex += 1;
+    }
+  }
+
+  furniture.push(
+    createFurniture(
+      space,
+      "meeting-table",
+      "table",
+      "회의 테이블",
+      pad + iw * 0.8,
+      pad + ih * 0.08,
+      2.4,
+      1.2
+    ),
+    createFurniture(
+      space,
+      "pantry-table",
+      "table",
+      "라운지 테이블",
+      pad + iw * 0.82,
+      pad + ih * 0.84,
+      1.8,
+      0.9
+    )
+  );
+
+  return {
+    zones,
+    furniture,
     assumptions: [
-      ...layoutResult.assumptions,
-      project.input_mode
-        ? `입력 방식(${project.input_mode})을 참고했지만 현재는 mock 배치 규칙 기반으로 생성`
-        : "입력 방식 정보가 없어 기본 규칙 기반으로 생성",
-      areaValue
-        ? `입력 면적 ${areaValue} 기준으로 전체 공간 크기를 추정`
-        : "면적 정보가 없어 업종별 기본 크기를 사용",
+      "사무실 유형 기준으로 오픈 업무존, 회의실, 집중실, 팬트리를 기본 배치했습니다.",
+      "실제 출입문/창 위치 정보가 없으므로 일반적인 동선 기준으로 구성했습니다.",
     ],
   };
 }
 
+function buildCafeLayout(project: OfficeProjectRow, space: LayoutSpace) {
+  const pad = 0.6;
+  const iw = space.width - pad * 2;
+  const ih = space.height - pad * 2;
+
+  const zones: LayoutZone[] = [
+    createZone(
+      space,
+      "zone-counter",
+      "counter",
+      "주문 카운터",
+      pad,
+      pad,
+      iw * 0.28,
+      ih * 0.22
+    ),
+    createZone(
+      space,
+      "zone-bar",
+      "bar",
+      "제조존",
+      pad,
+      pad + ih * 0.24,
+      iw * 0.28,
+      ih * 0.36
+    ),
+    createZone(
+      space,
+      "zone-pickup",
+      "pickup",
+      "픽업 / 대기존",
+      pad + iw * 0.3,
+      pad,
+      iw * 0.22,
+      ih * 0.2
+    ),
+    createZone(
+      space,
+      "zone-seating",
+      "seating",
+      "고객 좌석",
+      pad + iw * 0.32,
+      pad + ih * 0.24,
+      iw * 0.68,
+      ih * 0.76
+    ),
+  ];
+
+  const seating = zones.find((z) => z.id === "zone-seating")!;
+  const furniture: LayoutFurniture[] = [
+    createFurniture(
+      space,
+      "counter-desk",
+      "counter",
+      "카운터",
+      pad + 0.3,
+      pad + 0.4,
+      2.4,
+      0.8
+    ),
+    createFurniture(
+      space,
+      "espresso-bar",
+      "bar",
+      "제조 바",
+      pad + 0.4,
+      pad + ih * 0.34,
+      2.2,
+      0.8
+    ),
+  ];
+
+  let tableIndex = 1;
+  const cols = Math.max(2, Math.floor(seating.width / 2.5));
+  const rows = Math.max(2, Math.floor(seating.height / 2.2));
+
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      const x = seating.x + 0.5 + c * 2.2;
+      const y = seating.y + 0.5 + r * 2.0;
+
+      if (x + 1.2 > seating.x + seating.width || y + 1.2 > seating.y + seating.height) {
+        continue;
+      }
+
+      furniture.push(
+        createFurniture(
+          space,
+          `cafe-table-${tableIndex}`,
+          "table",
+          `테이블 ${tableIndex}`,
+          x,
+          y,
+          1.0,
+          1.0
+        )
+      );
+      tableIndex += 1;
+    }
+  }
+
+  return {
+    zones,
+    furniture,
+    assumptions: [
+      "카페 유형 기준으로 주문 카운터, 제조존, 픽업존, 좌석을 분리 배치했습니다.",
+      "실제 급배수/전기 위치가 없으므로 일반적인 운영 동선 기준입니다.",
+    ],
+  };
+}
+
+function buildRestaurantLayout(project: OfficeProjectRow, space: LayoutSpace) {
+  const pad = 0.6;
+  const iw = space.width - pad * 2;
+  const ih = space.height - pad * 2;
+
+  const zones: LayoutZone[] = [
+    createZone(space, "zone-wait", "waiting", "대기존", pad, pad, iw * 0.18, ih * 0.18),
+    createZone(space, "zone-cashier", "cashier", "카운터", pad + iw * 0.2, pad, iw * 0.18, ih * 0.18),
+    createZone(space, "zone-kitchen", "kitchen", "주방", pad, pad + ih * 0.24, iw * 0.34, ih * 0.76),
+    createZone(space, "zone-hall", "hall", "홀 좌석", pad + iw * 0.38, pad, iw * 0.62, ih),
+  ];
+
+  const hall = zones.find((z) => z.id === "zone-hall")!;
+  const furniture: LayoutFurniture[] = [
+    createFurniture(space, "cashier-desk", "counter", "결제 카운터", pad + iw * 0.23, pad + 0.35, 1.8, 0.8),
+    createFurniture(space, "kitchen-line", "kitchen", "조리 라인", pad + 0.5, pad + ih * 0.4, 2.4, 0.8),
+  ];
+
+  let idx = 1;
+  const cols = Math.max(2, Math.floor(hall.width / 2.4));
+  const rows = Math.max(2, Math.floor(hall.height / 2.2));
+
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      const x = hall.x + 0.4 + c * 2.1;
+      const y = hall.y + 0.5 + r * 2.0;
+
+      if (x + 1.2 > hall.x + hall.width || y + 1.2 > hall.y + hall.height) {
+        continue;
+      }
+
+      furniture.push(
+        createFurniture(space, `hall-table-${idx}`, "table", `홀 테이블 ${idx}`, x, y, 1.2, 1.2)
+      );
+      idx += 1;
+    }
+  }
+
+  return {
+    zones,
+    furniture,
+    assumptions: [
+      "식당 유형 기준으로 홀과 주방을 분리하고 대기/결제 흐름을 입구 측에 배치했습니다.",
+      "실제 배기/설비 위치가 반영되지 않은 기본안입니다.",
+    ],
+  };
+}
+
+function buildFitnessLayout(project: OfficeProjectRow, space: LayoutSpace) {
+  const pad = 0.6;
+  const iw = space.width - pad * 2;
+  const ih = space.height - pad * 2;
+
+  const zones: LayoutZone[] = [
+    createZone(space, "zone-reception", "reception", "리셉션", pad, pad, iw * 0.22, ih * 0.18),
+    createZone(space, "zone-cardio", "cardio", "유산소존", pad + iw * 0.24, pad, iw * 0.38, ih * 0.42),
+    createZone(space, "zone-weights", "weights", "웨이트존", pad, pad + ih * 0.22, iw * 0.36, ih * 0.78),
+    createZone(space, "zone-stretch", "stretch", "스트레칭존", pad + iw * 0.64, pad + ih * 0.48, iw * 0.36, ih * 0.52),
+  ];
+
+  const furniture: LayoutFurniture[] = [
+    createFurniture(space, "desk-reception", "counter", "리셉션 데스크", pad + 0.4, pad + 0.4, 1.8, 0.8),
+    createFurniture(space, "treadmill-1", "machine", "런닝머신 1", pad + iw * 0.3, pad + 0.6, 1.8, 0.9),
+    createFurniture(space, "treadmill-2", "machine", "런닝머신 2", pad + iw * 0.45, pad + 0.6, 1.8, 0.9),
+    createFurniture(space, "rack-1", "weights", "웨이트 랙", pad + 0.8, pad + ih * 0.4, 2.0, 0.9),
+    createFurniture(space, "mat-1", "mat", "스트레칭 매트", pad + iw * 0.72, pad + ih * 0.62, 1.6, 0.8),
+  ];
+
+  return {
+    zones,
+    furniture,
+    assumptions: [
+      "피트니스 유형 기준으로 리셉션, 유산소, 웨이트, 스트레칭 구역을 구분했습니다.",
+      "안전 거리와 기구 간격은 실제 장비 스펙에 맞게 재조정이 필요합니다.",
+    ],
+  };
+}
+
+function buildRetailLayout(project: OfficeProjectRow, space: LayoutSpace) {
+  const pad = 0.6;
+  const iw = space.width - pad * 2;
+  const ih = space.height - pad * 2;
+
+  const zones: LayoutZone[] = [
+    createZone(space, "zone-promo", "promo", "프로모션존", pad, pad, iw * 0.24, ih * 0.22),
+    createZone(space, "zone-display-main", "display", "메인 진열존", pad + iw * 0.26, pad, iw * 0.48, ih * 0.72),
+    createZone(space, "zone-display-sub", "display", "보조 진열존", pad, pad + ih * 0.26, iw * 0.22, ih * 0.6),
+    createZone(space, "zone-cashier", "cashier", "계산대", pad + iw * 0.78, pad, iw * 0.22, ih * 0.2),
+    createZone(space, "zone-storage", "storage", "재고 / 수납", pad + iw * 0.78, pad + ih * 0.24, iw * 0.22, ih * 0.3),
+  ];
+
+  const furniture: LayoutFurniture[] = [
+    createFurniture(space, "promo-table", "display", "프로모션 테이블", pad + 0.6, pad + 0.6, 1.6, 1.0),
+    createFurniture(space, "cashier-desk", "counter", "계산대", pad + iw * 0.82, pad + 0.4, 1.8, 0.8),
+    createFurniture(space, "display-rack-1", "rack", "진열 랙 1", pad + iw * 0.34, pad + 0.8, 0.8, 3.0),
+    createFurniture(space, "display-rack-2", "rack", "진열 랙 2", pad + iw * 0.48, pad + 0.8, 0.8, 3.0),
+    createFurniture(space, "display-rack-3", "rack", "진열 랙 3", pad + iw * 0.62, pad + 0.8, 0.8, 3.0),
+  ];
+
+  return {
+    zones,
+    furniture,
+    assumptions: [
+      "리테일 유형 기준으로 진입 시야와 메인 진열 흐름을 우선 고려했습니다.",
+      "실제 상품 크기와 카테고리에 따라 랙 수량은 조정이 필요합니다.",
+    ],
+  };
+}
+
+function buildOtherLayout(project: OfficeProjectRow, space: LayoutSpace) {
+  const pad = 0.6;
+  const iw = space.width - pad * 2;
+  const ih = space.height - pad * 2;
+
+  const zones: LayoutZone[] = [
+    createZone(space, "zone-main", "display", "메인 사용 구역", pad, pad, iw * 0.62, ih * 0.72),
+    createZone(space, "zone-support", "storage", "보조 기능 구역", pad + iw * 0.66, pad, iw * 0.34, ih * 0.42),
+    createZone(space, "zone-service", "reception", "응대 / 전면 구역", pad + iw * 0.66, pad + ih * 0.48, iw * 0.34, ih * 0.24),
+    createZone(space, "zone-storage", "storage", "수납 구역", pad, pad + ih * 0.76, iw * 0.36, ih * 0.24),
+  ];
+
+  const furniture: LayoutFurniture[] = [
+    createFurniture(space, "main-table", "table", "메인 테이블", pad + 1.0, pad + 1.0, 2.2, 1.2),
+    createFurniture(space, "support-shelf", "shelf", "보조 수납", pad + iw * 0.74, pad + 0.8, 1.2, 2.4),
+  ];
+
+  return {
+    zones,
+    furniture,
+    assumptions: [
+      "기타 유형은 범용 공간으로 가정해 메인 구역과 보조 구역 중심으로 배치했습니다.",
+      "업종 특성이 명확해지면 맞춤 zoning으로 다시 생성하는 것이 좋습니다.",
+    ],
+  };
+}
+
+function buildMockLayout3D(project: OfficeProjectRow): Layout3DJson {
+  const areaValue = parseArea(project.area);
+  const space = buildSpaceDimensions(areaValue, project.shape);
+
+  let result:
+    | ReturnType<typeof buildOfficeLayout>
+    | ReturnType<typeof buildCafeLayout>
+    | ReturnType<typeof buildRestaurantLayout>
+    | ReturnType<typeof buildFitnessLayout>
+    | ReturnType<typeof buildRetailLayout>
+    | ReturnType<typeof buildOtherLayout>;
+
+  switch (project.space_type) {
+    case "office":
+      result = buildOfficeLayout(project, space);
+      break;
+    case "cafe":
+      result = buildCafeLayout(project, space);
+      break;
+    case "restaurant":
+      result = buildRestaurantLayout(project, space);
+      break;
+    case "fitness":
+      result = buildFitnessLayout(project, space);
+      break;
+    case "retail":
+      result = buildRetailLayout(project, space);
+      break;
+    default:
+      result = buildOtherLayout(project, space);
+      break;
+  }
+
+  return {
+    version: "1.0",
+    generated_at: new Date().toISOString(),
+    project_summary: {
+      project_id: project.id,
+      project_name: project.project_name,
+      space_type: project.space_type,
+      space_type_label: getSpaceTypeLabel(
+        project.space_type,
+        project.space_type_detail
+      ),
+      area: project.area,
+      headcount: project.headcount,
+      shape: project.shape,
+      input_mode: project.input_mode,
+    },
+    space,
+    zones: result.zones,
+    furniture: result.furniture,
+    assumptions: result.assumptions,
+    warnings: [
+      "현재 배치는 MVP용 자동 생성 예시입니다.",
+      "실제 출입문, 창호, 기둥, 설비 위치 정보는 반영되지 않았습니다.",
+    ],
+    requirements_snapshot: project.requirements_json,
+  };
+}
+
 export async function POST(request: NextRequest) {
+  let projectId: number | null = null;
+
   try {
     const body = await request.json();
-    const projectId = Number(body?.projectId);
+    projectId = Number(body?.projectId);
 
     if (!projectId || Number.isNaN(projectId)) {
       return NextResponse.json(
@@ -623,7 +704,18 @@ export async function POST(request: NextRequest) {
     const { data: project, error: fetchError } = await supabase
       .from("office_projects")
       .select(
-        "id, project_name, area, headcount, shape, notes, space_type, space_type_detail, input_mode"
+        `
+        id,
+        project_name,
+        area,
+        headcount,
+        shape,
+        notes,
+        space_type,
+        space_type_detail,
+        input_mode,
+        requirements_json
+        `
       )
       .eq("id", projectId)
       .single();
@@ -635,34 +727,58 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await supabase
+    const { error: processingError } = await supabase
       .from("office_projects")
-      .update({ layout_status: "processing" })
+      .update({
+        layout_status: "processing",
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", projectId);
 
-    const mockLayout3D = buildMockLayout3D(project as OfficeProjectRow);
+    if (processingError) {
+      return NextResponse.json(
+        {
+          error:
+            processingError.message || "3D 배치 상태 업데이트에 실패했습니다.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const layout3D = buildMockLayout3D(project as OfficeProjectRow);
 
     const { error: updateError } = await supabase
       .from("office_projects")
       .update({
         layout_status: "completed",
-        layout_3d_json: mockLayout3D,
+        layout_3d_json: layout3D,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", projectId);
 
     if (updateError) {
       return NextResponse.json(
-        { error: updateError.message || "3D 배치 저장 중 오류가 발생했습니다." },
+        { error: updateError.message || "3D 배치 저장에 실패했습니다." },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: "업종별 mock 3D 배치 결과가 저장되었습니다.",
-      layout: mockLayout3D,
+      message: "3D 배치 생성이 완료되었습니다.",
+      layout: layout3D,
     });
   } catch (error: any) {
+    if (projectId) {
+      await supabase
+        .from("office_projects")
+        .update({
+          layout_status: "failed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", projectId);
+    }
+
     return NextResponse.json(
       { error: error?.message || "3D 배치 생성 중 오류가 발생했습니다." },
       { status: 500 }
