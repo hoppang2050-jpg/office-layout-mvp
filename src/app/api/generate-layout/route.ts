@@ -85,6 +85,7 @@ type Layout3DJson = {
   };
   space: LayoutSpace;
   zones: LayoutZone[];
+  furniture: LayoutFurniture[];
   assumptions: string[];
   warnings: string[];
   requirements_snapshot: RequirementsJson;
@@ -204,10 +205,12 @@ function createZone(
   height: number,
   meta?: LayoutZone["meta"]
 ): LayoutZone {
-  const safeX = round1(clamp(x, 0, space.width - 1));
-  const safeY = round1(clamp(y, 0, space.height - 1));
-  const safeWidth = round1(clamp(width, 1, space.width - safeX));
-  const safeHeight = round1(clamp(height, 1, space.height - safeY));
+  const safeX = round1(clamp(x, 0, Math.max(space.width - 1, 0)));
+  const safeY = round1(clamp(y, 0, Math.max(space.height - 1, 0)));
+  const safeWidth = round1(clamp(width, 1, Math.max(space.width - safeX, 1)));
+  const safeHeight = round1(
+    clamp(height, 1, Math.max(space.height - safeY, 1))
+  );
 
   return {
     id,
@@ -233,10 +236,14 @@ function createFurniture(
   height: number,
   rotation = 0
 ): LayoutFurniture {
-  const safeX = round1(clamp(x, 0, space.width - 0.5));
-  const safeY = round1(clamp(y, 0, space.height - 0.5));
-  const safeWidth = round1(clamp(width, 0.4, space.width - safeX));
-  const safeHeight = round1(clamp(height, 0.4, space.height - safeY));
+  const safeX = round1(clamp(x, 0, Math.max(space.width - 0.5, 0)));
+  const safeY = round1(clamp(y, 0, Math.max(space.height - 0.5, 0)));
+  const safeWidth = round1(
+    clamp(width, 0.4, Math.max(space.width - safeX, 0.4))
+  );
+  const safeHeight = round1(
+    clamp(height, 0.4, Math.max(space.height - safeY, 0.4))
+  );
 
   return {
     id,
@@ -460,7 +467,10 @@ function buildCafeLayout(project: OfficeProjectRow, space: LayoutSpace) {
       const x = seating.x + 0.5 + c * 2.2;
       const y = seating.y + 0.5 + r * 2.0;
 
-      if (x + 1.2 > seating.x + seating.width || y + 1.2 > seating.y + seating.height) {
+      if (
+        x + 1.2 > seating.x + seating.width ||
+        y + 1.2 > seating.y + seating.height
+      ) {
         continue;
       }
 
@@ -496,16 +506,70 @@ function buildRestaurantLayout(project: OfficeProjectRow, space: LayoutSpace) {
   const ih = space.height - pad * 2;
 
   const zones: LayoutZone[] = [
-    createZone(space, "zone-wait", "waiting", "대기존", pad, pad, iw * 0.18, ih * 0.18),
-    createZone(space, "zone-cashier", "cashier", "카운터", pad + iw * 0.2, pad, iw * 0.18, ih * 0.18),
-    createZone(space, "zone-kitchen", "kitchen", "주방", pad, pad + ih * 0.24, iw * 0.34, ih * 0.76),
-    createZone(space, "zone-hall", "hall", "홀 좌석", pad + iw * 0.38, pad, iw * 0.62, ih),
+    createZone(
+      space,
+      "zone-wait",
+      "waiting",
+      "대기존",
+      pad,
+      pad,
+      iw * 0.18,
+      ih * 0.18
+    ),
+    createZone(
+      space,
+      "zone-cashier",
+      "cashier",
+      "카운터",
+      pad + iw * 0.2,
+      pad,
+      iw * 0.18,
+      ih * 0.18
+    ),
+    createZone(
+      space,
+      "zone-kitchen",
+      "kitchen",
+      "주방",
+      pad,
+      pad + ih * 0.24,
+      iw * 0.34,
+      ih * 0.76
+    ),
+    createZone(
+      space,
+      "zone-hall",
+      "hall",
+      "홀 좌석",
+      pad + iw * 0.38,
+      pad,
+      iw * 0.62,
+      ih
+    ),
   ];
 
   const hall = zones.find((z) => z.id === "zone-hall")!;
   const furniture: LayoutFurniture[] = [
-    createFurniture(space, "cashier-desk", "counter", "결제 카운터", pad + iw * 0.23, pad + 0.35, 1.8, 0.8),
-    createFurniture(space, "kitchen-line", "kitchen", "조리 라인", pad + 0.5, pad + ih * 0.4, 2.4, 0.8),
+    createFurniture(
+      space,
+      "cashier-desk",
+      "counter",
+      "결제 카운터",
+      pad + iw * 0.23,
+      pad + 0.35,
+      1.8,
+      0.8
+    ),
+    createFurniture(
+      space,
+      "kitchen-line",
+      "kitchen",
+      "조리 라인",
+      pad + 0.5,
+      pad + ih * 0.4,
+      2.4,
+      0.8
+    ),
   ];
 
   let idx = 1;
@@ -522,7 +586,16 @@ function buildRestaurantLayout(project: OfficeProjectRow, space: LayoutSpace) {
       }
 
       furniture.push(
-        createFurniture(space, `hall-table-${idx}`, "table", `홀 테이블 ${idx}`, x, y, 1.2, 1.2)
+        createFurniture(
+          space,
+          `hall-table-${idx}`,
+          "table",
+          `홀 테이블 ${idx}`,
+          x,
+          y,
+          1.2,
+          1.2
+        )
       );
       idx += 1;
     }
@@ -544,18 +617,99 @@ function buildFitnessLayout(project: OfficeProjectRow, space: LayoutSpace) {
   const ih = space.height - pad * 2;
 
   const zones: LayoutZone[] = [
-    createZone(space, "zone-reception", "reception", "리셉션", pad, pad, iw * 0.22, ih * 0.18),
-    createZone(space, "zone-cardio", "cardio", "유산소존", pad + iw * 0.24, pad, iw * 0.38, ih * 0.42),
-    createZone(space, "zone-weights", "weights", "웨이트존", pad, pad + ih * 0.22, iw * 0.36, ih * 0.78),
-    createZone(space, "zone-stretch", "stretch", "스트레칭존", pad + iw * 0.64, pad + ih * 0.48, iw * 0.36, ih * 0.52),
+    createZone(
+      space,
+      "zone-reception",
+      "reception",
+      "리셉션",
+      pad,
+      pad,
+      iw * 0.22,
+      ih * 0.18
+    ),
+    createZone(
+      space,
+      "zone-cardio",
+      "cardio",
+      "유산소존",
+      pad + iw * 0.24,
+      pad,
+      iw * 0.38,
+      ih * 0.42
+    ),
+    createZone(
+      space,
+      "zone-weights",
+      "weights",
+      "웨이트존",
+      pad,
+      pad + ih * 0.22,
+      iw * 0.36,
+      ih * 0.78
+    ),
+    createZone(
+      space,
+      "zone-stretch",
+      "stretch",
+      "스트레칭존",
+      pad + iw * 0.64,
+      pad + ih * 0.48,
+      iw * 0.36,
+      ih * 0.52
+    ),
   ];
 
   const furniture: LayoutFurniture[] = [
-    createFurniture(space, "desk-reception", "counter", "리셉션 데스크", pad + 0.4, pad + 0.4, 1.8, 0.8),
-    createFurniture(space, "treadmill-1", "machine", "런닝머신 1", pad + iw * 0.3, pad + 0.6, 1.8, 0.9),
-    createFurniture(space, "treadmill-2", "machine", "런닝머신 2", pad + iw * 0.45, pad + 0.6, 1.8, 0.9),
-    createFurniture(space, "rack-1", "weights", "웨이트 랙", pad + 0.8, pad + ih * 0.4, 2.0, 0.9),
-    createFurniture(space, "mat-1", "mat", "스트레칭 매트", pad + iw * 0.72, pad + ih * 0.62, 1.6, 0.8),
+    createFurniture(
+      space,
+      "desk-reception",
+      "counter",
+      "리셉션 데스크",
+      pad + 0.4,
+      pad + 0.4,
+      1.8,
+      0.8
+    ),
+    createFurniture(
+      space,
+      "treadmill-1",
+      "machine",
+      "런닝머신 1",
+      pad + iw * 0.3,
+      pad + 0.6,
+      1.8,
+      0.9
+    ),
+    createFurniture(
+      space,
+      "treadmill-2",
+      "machine",
+      "런닝머신 2",
+      pad + iw * 0.45,
+      pad + 0.6,
+      1.8,
+      0.9
+    ),
+    createFurniture(
+      space,
+      "rack-1",
+      "weights",
+      "웨이트 랙",
+      pad + 0.8,
+      pad + ih * 0.4,
+      2.0,
+      0.9
+    ),
+    createFurniture(
+      space,
+      "mat-1",
+      "mat",
+      "스트레칭 매트",
+      pad + iw * 0.72,
+      pad + ih * 0.62,
+      1.6,
+      0.8
+    ),
   ];
 
   return {
@@ -574,19 +728,109 @@ function buildRetailLayout(project: OfficeProjectRow, space: LayoutSpace) {
   const ih = space.height - pad * 2;
 
   const zones: LayoutZone[] = [
-    createZone(space, "zone-promo", "promo", "프로모션존", pad, pad, iw * 0.24, ih * 0.22),
-    createZone(space, "zone-display-main", "display", "메인 진열존", pad + iw * 0.26, pad, iw * 0.48, ih * 0.72),
-    createZone(space, "zone-display-sub", "display", "보조 진열존", pad, pad + ih * 0.26, iw * 0.22, ih * 0.6),
-    createZone(space, "zone-cashier", "cashier", "계산대", pad + iw * 0.78, pad, iw * 0.22, ih * 0.2),
-    createZone(space, "zone-storage", "storage", "재고 / 수납", pad + iw * 0.78, pad + ih * 0.24, iw * 0.22, ih * 0.3),
+    createZone(
+      space,
+      "zone-promo",
+      "promo",
+      "프로모션존",
+      pad,
+      pad,
+      iw * 0.24,
+      ih * 0.22
+    ),
+    createZone(
+      space,
+      "zone-display-main",
+      "display",
+      "메인 진열존",
+      pad + iw * 0.26,
+      pad,
+      iw * 0.48,
+      ih * 0.72
+    ),
+    createZone(
+      space,
+      "zone-display-sub",
+      "display",
+      "보조 진열존",
+      pad,
+      pad + ih * 0.26,
+      iw * 0.22,
+      ih * 0.6
+    ),
+    createZone(
+      space,
+      "zone-cashier",
+      "cashier",
+      "계산대",
+      pad + iw * 0.78,
+      pad,
+      iw * 0.22,
+      ih * 0.2
+    ),
+    createZone(
+      space,
+      "zone-storage",
+      "storage",
+      "재고 / 수납",
+      pad + iw * 0.78,
+      pad + ih * 0.24,
+      iw * 0.22,
+      ih * 0.3
+    ),
   ];
 
   const furniture: LayoutFurniture[] = [
-    createFurniture(space, "promo-table", "display", "프로모션 테이블", pad + 0.6, pad + 0.6, 1.6, 1.0),
-    createFurniture(space, "cashier-desk", "counter", "계산대", pad + iw * 0.82, pad + 0.4, 1.8, 0.8),
-    createFurniture(space, "display-rack-1", "rack", "진열 랙 1", pad + iw * 0.34, pad + 0.8, 0.8, 3.0),
-    createFurniture(space, "display-rack-2", "rack", "진열 랙 2", pad + iw * 0.48, pad + 0.8, 0.8, 3.0),
-    createFurniture(space, "display-rack-3", "rack", "진열 랙 3", pad + iw * 0.62, pad + 0.8, 0.8, 3.0),
+    createFurniture(
+      space,
+      "promo-table",
+      "display",
+      "프로모션 테이블",
+      pad + 0.6,
+      pad + 0.6,
+      1.6,
+      1.0
+    ),
+    createFurniture(
+      space,
+      "cashier-desk",
+      "counter",
+      "계산대",
+      pad + iw * 0.82,
+      pad + 0.4,
+      1.8,
+      0.8
+    ),
+    createFurniture(
+      space,
+      "display-rack-1",
+      "rack",
+      "진열 랙 1",
+      pad + iw * 0.34,
+      pad + 0.8,
+      0.8,
+      3.0
+    ),
+    createFurniture(
+      space,
+      "display-rack-2",
+      "rack",
+      "진열 랙 2",
+      pad + iw * 0.48,
+      pad + 0.8,
+      0.8,
+      3.0
+    ),
+    createFurniture(
+      space,
+      "display-rack-3",
+      "rack",
+      "진열 랙 3",
+      pad + iw * 0.62,
+      pad + 0.8,
+      0.8,
+      3.0
+    ),
   ];
 
   return {
@@ -605,15 +849,69 @@ function buildOtherLayout(project: OfficeProjectRow, space: LayoutSpace) {
   const ih = space.height - pad * 2;
 
   const zones: LayoutZone[] = [
-    createZone(space, "zone-main", "display", "메인 사용 구역", pad, pad, iw * 0.62, ih * 0.72),
-    createZone(space, "zone-support", "storage", "보조 기능 구역", pad + iw * 0.66, pad, iw * 0.34, ih * 0.42),
-    createZone(space, "zone-service", "reception", "응대 / 전면 구역", pad + iw * 0.66, pad + ih * 0.48, iw * 0.34, ih * 0.24),
-    createZone(space, "zone-storage", "storage", "수납 구역", pad, pad + ih * 0.76, iw * 0.36, ih * 0.24),
+    createZone(
+      space,
+      "zone-main",
+      "display",
+      "메인 사용 구역",
+      pad,
+      pad,
+      iw * 0.62,
+      ih * 0.72
+    ),
+    createZone(
+      space,
+      "zone-support",
+      "storage",
+      "보조 기능 구역",
+      pad + iw * 0.66,
+      pad,
+      iw * 0.34,
+      ih * 0.42
+    ),
+    createZone(
+      space,
+      "zone-service",
+      "reception",
+      "응대 / 전면 구역",
+      pad + iw * 0.66,
+      pad + ih * 0.48,
+      iw * 0.34,
+      ih * 0.24
+    ),
+    createZone(
+      space,
+      "zone-storage",
+      "storage",
+      "수납 구역",
+      pad,
+      pad + ih * 0.76,
+      iw * 0.36,
+      ih * 0.24
+    ),
   ];
 
   const furniture: LayoutFurniture[] = [
-    createFurniture(space, "main-table", "table", "메인 테이블", pad + 1.0, pad + 1.0, 2.2, 1.2),
-    createFurniture(space, "support-shelf", "shelf", "보조 수납", pad + iw * 0.74, pad + 0.8, 1.2, 2.4),
+    createFurniture(
+      space,
+      "main-table",
+      "table",
+      "메인 테이블",
+      pad + 1.0,
+      pad + 1.0,
+      2.2,
+      1.2
+    ),
+    createFurniture(
+      space,
+      "support-shelf",
+      "shelf",
+      "보조 수납",
+      pad + iw * 0.74,
+      pad + 0.8,
+      1.2,
+      2.4
+    ),
   ];
 
   return {
