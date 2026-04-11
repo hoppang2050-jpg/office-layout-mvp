@@ -12,265 +12,155 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: JsonValue }
-  | JsonValue[];
+type JsonObject = Record<string, any>;
 
-type JsonObject = { [key: string]: JsonValue };
-
-type OfficeProjectRow = {
-  id: number;
-  project_name: string | null;
-  area: string | null;
-  headcount: number | null;
-  shape: string | null;
-  notes: string | null;
-  space_type: string | null;
-  space_type_detail: string | null;
-  input_mode: string | null;
-  file_url: string | null;
-  file_name: string | null;
-  requirements_json: JsonObject | null;
-  analysis_json: JsonObject | null;
-};
-
-function parseArea(area: string | null): number | null {
-  if (!area) return null;
-  const num = Number(String(area).replace(/[^\d.]/g, ""));
-  return Number.isNaN(num) ? null : num;
+function isObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function getSpaceTypeLabel(
-  spaceType: string | null,
-  detail?: string | null
-): string {
-  switch (spaceType) {
-    case "office":
-      return "사무실";
-    case "cafe":
-      return "카페";
-    case "restaurant":
-      return "식당";
-    case "fitness":
-      return "피트니스";
-    case "retail":
-      return "리테일";
-    case "other":
-      return detail?.trim() || "기타";
-    default:
-      return detail?.trim() || "공간";
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean);
   }
-}
 
-function getInputModeLabel(inputMode: string | null): string {
-  switch (inputMode) {
-    case "floorplan":
-      return "정식 도면";
-    case "sketch":
-      return "손그림 스케치";
-    case "no_drawing":
-      return "도면 없음";
-    default:
-      return "입력 방식 미지정";
+  if (typeof value === "string" && value.trim()) {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
+
+  return [];
 }
 
-function normalizeStringArray(values: string[]): string[] {
-  return values.filter((item) => item && item.trim().length > 0);
+function getSpaceTypeKey(raw?: string | null) {
+  const value = (raw || "").toLowerCase();
+
+  if (value.includes("cafe") || value.includes("coffee") || value.includes("카페")) {
+    return "cafe";
+  }
+
+  if (
+    value.includes("office") ||
+    value.includes("work") ||
+    value.includes("사무실") ||
+    value.includes("오피스")
+  ) {
+    return "office";
+  }
+
+  if (
+    value.includes("restaurant") ||
+    value.includes("dining") ||
+    value.includes("food") ||
+    value.includes("식당") ||
+    value.includes("레스토랑")
+  ) {
+    return "restaurant";
+  }
+
+  if (
+    value.includes("fitness") ||
+    value.includes("gym") ||
+    value.includes("헬스") ||
+    value.includes("피트니스")
+  ) {
+    return "fitness";
+  }
+
+  if (
+    value.includes("retail") ||
+    value.includes("shop") ||
+    value.includes("store") ||
+    value.includes("매장") ||
+    value.includes("리테일")
+  ) {
+    return "retail";
+  }
+
+  return "other";
 }
 
-function includesAny(text: string, keywords: string[]) {
-  return keywords.some((keyword) => text.includes(keyword));
+function getRequirements(project: any): JsonObject {
+  return isObject(project?.requirements_json) ? project.requirements_json : {};
 }
 
-function buildSharedMeta(project: OfficeProjectRow) {
-  const areaValue = parseArea(project.area);
-  const headcount = project.headcount ?? 0;
-  const notesText = (project.notes ?? "").trim();
-  const spaceTypeLabel = getSpaceTypeLabel(
-    project.space_type,
-    project.space_type_detail
-  );
-  const inputModeLabel = getInputModeLabel(project.input_mode);
+function getAnalysis(project: any): JsonObject {
+  return isObject(project?.analysis_json) ? project.analysis_json : {};
+}
+
+function getAnalysisFlowNotes(project: any): string[] {
+  const analysis = getAnalysis(project);
+
+  const direct = toStringArray(analysis.flow_notes);
+  if (direct.length > 0) return direct;
+
+  const alternatives = [
+    analysis.flow,
+    analysis.customer_flow,
+    analysis.operation_flow,
+  ];
+
+  for (const item of alternatives) {
+    const arr = toStringArray(item);
+    if (arr.length > 0) return arr;
+  }
+
+  return [];
+}
+
+function getAnalysisRisks(project: any): string[] {
+  const analysis = getAnalysis(project);
+
+  const direct = toStringArray(analysis.risks);
+  if (direct.length > 0) return direct;
+
+  const alt = toStringArray(analysis.issues);
+  if (alt.length > 0) return alt;
+
+  return [];
+}
+
+function buildCafeConcept(project: any) {
+  const flowNotes = getAnalysisFlowNotes(project);
+  const risks = getAnalysisRisks(project);
+
+  const summaryParts: string[] = [
+    "카페는 첫인상과 체류감이 중요합니다.",
+    "주문-대기-픽업 흐름을 명확히 하고 좌석 밀도는 과하지 않게 조정해 편안한 체류 경험을 만드는 방향으로 컨셉을 제안합니다.",
+  ];
+
+  if (flowNotes.length > 0) {
+    summaryParts.push(`분석된 주요 동선 포인트: ${flowNotes.slice(0, 2).join(", ")}`);
+  }
+
+  if (risks.length > 0) {
+    summaryParts.push(`주의 포인트: ${risks.slice(0, 2).join(", ")}`);
+  }
 
   return {
-    areaValue,
-    headcount,
-    notesText,
-    spaceTypeLabel,
-    inputModeLabel,
-  };
-}
-
-function pickMoodByNotes(notesText: string, fallback: string) {
-  const text = notesText.toLowerCase();
-
-  if (
-    includesAny(text, [
-      "편안",
-      "따뜻",
-      "안락",
-      "휴식",
-      "웜",
-      "cozy",
-      "calm",
-      "relax",
-    ])
-  ) {
-    return "따뜻하고 편안한 무드";
-  }
-
-  if (
-    includesAny(text, [
-      "고급",
-      "프리미엄",
-      "세련",
-      "럭셔리",
-      "elegant",
-      "premium",
-      "luxury",
-    ])
-  ) {
-    return "정돈되고 고급스러운 무드";
-  }
-
-  if (
-    includesAny(text, [
-      "활기",
-      "밝",
-      "에너지",
-      "역동",
-      "dynamic",
-      "active",
-      "energetic",
-    ])
-  ) {
-    return "활기차고 에너지 있는 무드";
-  }
-
-  if (
-    includesAny(text, [
-      "미니멀",
-      "깔끔",
-      "심플",
-      "simple",
-      "minimal",
-      "clean",
-    ])
-  ) {
-    return "미니멀하고 정제된 무드";
-  }
-
-  return fallback;
-}
-
-function buildOfficeConcept(project: OfficeProjectRow) {
-  const { areaValue, headcount, notesText, spaceTypeLabel, inputModeLabel } =
-    buildSharedMeta(project);
-
-  const baseMood = pickMoodByNotes(notesText, "집중과 협업이 균형 잡힌 스마트 오피스 무드");
-  const conceptName =
-    headcount >= 30 ? "Collaborative Flow Office" : "Balanced Focus Office";
-
-  return {
-    concept_name: conceptName,
-    title: conceptName,
-    summary:
-      `${spaceTypeLabel}의 핵심은 집중 업무와 협업 공간의 균형입니다. ` +
-      `오픈 업무존을 중심으로 회의/집중/휴게 구역을 명확히 분리하고, ` +
-      `동선은 단순하게 유지하는 방향의 컨셉을 제안합니다.`,
-    concept_summary:
-      "업무 효율성과 직원 체감 편안함을 동시에 높이는 방향의 오피스 컨셉입니다.",
-    mood: baseMood,
-    mood_line: baseMood,
-    keywords: normalizeStringArray([
-      "집중과 협업의 균형",
-      "깔끔한 동선",
-      "편안한 업무 환경",
-      areaValue && areaValue >= 200 ? "확장감 있는 레이아웃" : "밀도 조절형 레이아웃",
-      headcount >= 20 ? "팀 단위 협업" : "소규모 집중 업무",
-    ]),
-    recommended_zones: normalizeStringArray([
-      "오픈 업무존",
-      "회의실",
-      "집중 업무실",
-      "팬트리 / 라운지",
-      headcount >= 25 ? "소규모 폰부스 / 1인 미팅존" : "",
-    ]),
-    color_palette: [
-      { label: "Soft Ivory", hex: "#F8F5EF" },
-      { label: "Slate Gray", hex: "#64748B" },
-      { label: "Muted Blue", hex: "#AFC8E8" },
-      { label: "Warm Wood", hex: "#C89F7A" },
-      { label: "Calm Green", hex: "#B7D7C2" },
-    ],
-    spatial_direction: [
-      "입구에서 메인 업무존까지 직관적인 접근 흐름을 유지합니다.",
-      "회의/커뮤니케이션 공간은 공용 동선과 가깝게 배치합니다.",
-      "집중 업무 구역은 상대적으로 조용한 후면 영역에 배치합니다.",
-    ],
-    materials: [
-      "우드 텍스처 포인트 마감",
-      "무광 메탈 또는 매트 블랙 디테일",
-      "패브릭 흡음 패널",
-      "관리 쉬운 바닥 마감재",
-    ],
-    lighting_direction: [
-      "업무존은 균일하고 눈부심이 적은 베이스 조명",
-      "라운지/팬트리는 따뜻한 색온도 포인트 조명",
-      "회의실은 집중감 있는 중성광",
-    ],
-    furniture_direction: [
-      "직선형 데스크 배치와 이동성 좋은 보조 가구 구성",
-      "공용 라운지에는 가벼운 소파/테이블 조합",
-      "회의실은 심플한 대형 테이블 중심 구성",
-    ],
-    project_context: {
-      project_name: project.project_name,
-      area: project.area,
-      parsed_area: areaValue,
-      headcount,
-      shape: project.shape,
-      input_mode: project.input_mode,
-      input_mode_label: inputModeLabel,
-      file_name: project.file_name,
-      notes: project.notes,
-    },
-    generated_at: new Date().toISOString(),
     source: "mock-concept-generator-mvp",
-  };
-}
-
-function buildCafeConcept(project: OfficeProjectRow) {
-  const { areaValue, headcount, notesText, spaceTypeLabel, inputModeLabel } =
-    buildSharedMeta(project);
-
-  const baseMood = pickMoodByNotes(notesText, "따뜻하고 머무르고 싶은 카페 무드");
-  const conceptName =
-    areaValue && areaValue >= 120 ? "Warm Community Café" : "Compact Cozy Café";
-
-  return {
-    concept_name: conceptName,
-    title: conceptName,
-    summary:
-      `${spaceTypeLabel}는 첫인상과 체류감이 중요합니다. ` +
-      `주문-대기-픽업 흐름을 명확히 하고, 좌석 밀도는 과하지 않게 조정하여 ` +
-      `편안한 체류 경험을 만드는 방향으로 컨셉을 제안합니다.`,
-    concept_summary:
-      "고객이 자연스럽게 머물고 재방문하고 싶어지는 따뜻한 카페 컨셉입니다.",
-    mood: baseMood,
-    mood_line: baseMood,
-    keywords: normalizeStringArray([
+    concept_name: "Warm Community Café",
+    title: "Warm Community Café",
+    name: "Warm Community Café",
+    mood: "따뜻하고 머무르고 싶은 카페 무드",
+    summary: summaryParts.join(" "),
+    keywords: [
       "따뜻한 체류감",
       "명확한 주문 동선",
       "편안한 좌석 구성",
       "감성 조명",
-      headcount >= 5 ? "운영 효율" : "소형 매장 최적화",
-    ]),
+      "운영 효율",
+    ],
+    color_palette: [
+      "#F5E6C8",
+      "#D7BFA8",
+      "#8C5E3C",
+      "#6F7D6A",
+      "#F8F5EF",
+    ],
     recommended_zones: [
       "주문 카운터",
       "제조존",
@@ -278,356 +168,262 @@ function buildCafeConcept(project: OfficeProjectRow) {
       "메인 좌석존",
       "창가 / 포인트 좌석",
     ],
-    color_palette: [
-      { label: "Cream", hex: "#F6EFE5" },
-      { label: "Terracotta", hex: "#C97C5D" },
-      { label: "Espresso Brown", hex: "#6F4E37" },
-      { label: "Sage Green", hex: "#B7C4A8" },
-      { label: "Soft Charcoal", hex: "#4B5563" },
+    styling_points: [
+      "우드 톤과 패브릭 질감으로 체류감을 강화합니다.",
+      "카운터 전면의 시인성을 높여 첫 진입 인지를 쉽게 만듭니다.",
+      "대기와 픽업 구간을 짧고 명확하게 구성합니다.",
     ],
-    spatial_direction: [
-      "입구 진입 후 주문 위치가 바로 인지되도록 구성합니다.",
-      "대기와 좌석 흐름이 충돌하지 않도록 픽업 동선을 분리합니다.",
-      "벽면/창가 좌석에 체류 포인트를 줍니다.",
-    ],
-    materials: [
-      "우드 베니어 또는 오크 계열 마감",
-      "따뜻한 질감의 타일 또는 스톤 포인트",
-      "패브릭 또는 가죽 느낌의 좌석 마감",
-    ],
-    lighting_direction: [
-      "카운터는 선명한 작업 조명",
-      "좌석은 따뜻한 색온도의 펜던트/간접 조명",
-      "포인트 벽면은 브랜드 감성이 드러나는 연출 조명",
-    ],
-    furniture_direction: [
-      "2인석과 4인석을 혼합해 좌석 유연성 확보",
-      "바 좌석 또는 창가 포인트 좌석 배치",
-      "대기 공간은 시각적으로 답답하지 않게 최소 구성",
-    ],
-    project_context: {
-      project_name: project.project_name,
-      area: project.area,
-      parsed_area: areaValue,
-      headcount,
-      shape: project.shape,
-      input_mode: project.input_mode,
-      input_mode_label: inputModeLabel,
-      file_name: project.file_name,
-      notes: project.notes,
-    },
-    generated_at: new Date().toISOString(),
-    source: "mock-concept-generator-mvp",
   };
 }
 
-function buildRestaurantConcept(project: OfficeProjectRow) {
-  const { areaValue, headcount, notesText, spaceTypeLabel, inputModeLabel } =
-    buildSharedMeta(project);
+function buildOfficeConcept(project: any) {
+  const flowNotes = getAnalysisFlowNotes(project);
+  const risks = getAnalysisRisks(project);
 
-  const baseMood = pickMoodByNotes(notesText, "정돈되고 식사 경험이 편안한 다이닝 무드");
-  const conceptName =
-    areaValue && areaValue >= 150 ? "Modern Dining Balance" : "Efficient Warm Dining";
+  const summaryParts: string[] = [
+    "오피스는 집중과 협업의 균형이 중요합니다.",
+    "개방형 업무 구역과 회의/커뮤니케이션 공간의 밀도를 조절해 생산성과 브랜딩 이미지를 함께 확보하는 방향으로 제안합니다.",
+  ];
+
+  if (flowNotes.length > 0) {
+    summaryParts.push(`동선 포인트: ${flowNotes.slice(0, 2).join(", ")}`);
+  }
+
+  if (risks.length > 0) {
+    summaryParts.push(`주의 포인트: ${risks.slice(0, 2).join(", ")}`);
+  }
 
   return {
-    concept_name: conceptName,
-    title: conceptName,
-    summary:
-      `${spaceTypeLabel}는 홀과 주방의 운영 효율이 핵심입니다. ` +
-      `메인 홀 좌석의 쾌적함을 유지하면서 서빙 동선을 짧게 만들고, ` +
-      `입구-대기-결제 흐름이 자연스럽도록 컨셉을 제안합니다.`,
-    concept_summary:
-      "운영 효율과 고객 경험의 균형을 맞춘 다이닝 컨셉입니다.",
-    mood: baseMood,
-    mood_line: baseMood,
-    keywords: normalizeStringArray([
-      "쾌적한 홀 구성",
-      "효율적인 서빙 동선",
-      "명확한 입구 경험",
-      "따뜻한 다이닝 분위기",
-      headcount >= 8 ? "피크타임 운영 대응" : "소형 홀 최적화",
-    ]),
+    source: "mock-concept-generator-mvp",
+    concept_name: "Balanced Smart Office",
+    title: "Balanced Smart Office",
+    name: "Balanced Smart Office",
+    mood: "집중감과 개방감을 함께 주는 스마트 오피스 무드",
+    summary: summaryParts.join(" "),
+    keywords: [
+      "집중과 협업의 균형",
+      "정돈된 브랜드 인상",
+      "유연한 회의 공간",
+      "조용한 컬러감",
+      "효율적 수납",
+    ],
+    color_palette: [
+      "#E8EEF2",
+      "#C9D6DF",
+      "#52616B",
+      "#1E2022",
+      "#F0F5F9",
+    ],
     recommended_zones: [
-      "홀 좌석",
-      "주방",
-      "카운터 / 결제",
-      "대기존",
-      "서빙 스테이션",
+      "오픈 오피스",
+      "미팅룸",
+      "포커스존",
+      "라운지",
+      "팬트리",
     ],
-    color_palette: [
-      { label: "Warm Beige", hex: "#E8DCCB" },
-      { label: "Walnut", hex: "#7C5A43" },
-      { label: "Deep Olive", hex: "#6B7A5A" },
-      { label: "Brick Accent", hex: "#B8604D" },
-      { label: "Charcoal", hex: "#374151" },
+    styling_points: [
+      "메인 동선은 단순하고 직관적으로 설계합니다.",
+      "협업 공간은 투명감 있는 파티션으로 개방성을 확보합니다.",
+      "뉴트럴 톤에 포인트 컬러를 제한적으로 사용합니다.",
     ],
-    spatial_direction: [
-      "입구에서 홀의 첫인상이 바로 보이도록 시야를 확보합니다.",
-      "주방과 홀 사이 연결 동선을 짧게 유지합니다.",
-      "대기 공간은 식사 구역과 시각적으로 너무 섞이지 않게 구성합니다.",
-    ],
-    materials: [
-      "우드와 스톤 계열의 조합",
-      "내구성 높은 의자/테이블 마감",
-      "브랜드 포인트가 되는 벽면 소재",
-    ],
-    lighting_direction: [
-      "테이블 상부 중심의 따뜻한 조명",
-      "동선과 결제 구역은 식별성이 높은 조명",
-      "벽면 포인트 조명으로 분위기 연출",
-    ],
-    furniture_direction: [
-      "2인/4인 테이블 모듈을 유연하게 조합",
-      "메인 통로는 여유 있게 확보",
-      "벽면 좌석과 중앙 좌석의 밸런스 유지",
-    ],
-    project_context: {
-      project_name: project.project_name,
-      area: project.area,
-      parsed_area: areaValue,
-      headcount,
-      shape: project.shape,
-      input_mode: project.input_mode,
-      input_mode_label: inputModeLabel,
-      file_name: project.file_name,
-      notes: project.notes,
-    },
-    generated_at: new Date().toISOString(),
-    source: "mock-concept-generator-mvp",
   };
 }
 
-function buildFitnessConcept(project: OfficeProjectRow) {
-  const { areaValue, headcount, notesText, spaceTypeLabel, inputModeLabel } =
-    buildSharedMeta(project);
+function buildRestaurantConcept(project: any) {
+  const flowNotes = getAnalysisFlowNotes(project);
+  const risks = getAnalysisRisks(project);
 
-  const baseMood = pickMoodByNotes(notesText, "에너지와 집중감이 살아 있는 피트니스 무드");
-  const conceptName =
-    areaValue && areaValue >= 180 ? "Active Performance Gym" : "Compact Energy Studio";
+  const summaryParts: string[] = [
+    "레스토랑은 고객 경험과 운영 동선이 동시에 중요합니다.",
+    "입구-안내-착석-식사-결제 흐름을 부드럽게 연결하고 주방/서비스 동선은 겹치지 않도록 구성하는 방향으로 제안합니다.",
+  ];
+
+  if (flowNotes.length > 0) {
+    summaryParts.push(`동선 포인트: ${flowNotes.slice(0, 2).join(", ")}`);
+  }
+
+  if (risks.length > 0) {
+    summaryParts.push(`주의 포인트: ${risks.slice(0, 2).join(", ")}`);
+  }
 
   return {
-    concept_name: conceptName,
-    title: conceptName,
-    summary:
-      `${spaceTypeLabel}는 운동 몰입감과 안전 동선이 중요합니다. ` +
-      `유산소/웨이트/스트레칭 구역을 명확히 나누고, ` +
-      `입구에서 리셉션과 메인 운동 영역이 자연스럽게 연결되는 방향으로 컨셉을 제안합니다.`,
-    concept_summary:
-      "활기와 정돈감을 함께 주는 피트니스 공간 컨셉입니다.",
-    mood: baseMood,
-    mood_line: baseMood,
-    keywords: normalizeStringArray([
-      "에너지 있는 공간",
-      "안전 거리 확보",
-      "운동 구역 명확화",
-      "강한 브랜드 인상",
-      "동선 효율",
-    ]),
+    source: "mock-concept-generator-mvp",
+    concept_name: "Layered Dining Experience",
+    title: "Layered Dining Experience",
+    name: "Layered Dining Experience",
+    mood: "차분하면서도 몰입감 있는 다이닝 무드",
+    summary: summaryParts.join(" "),
+    keywords: [
+      "입구 경험 강화",
+      "홀-주방 동선 분리",
+      "테이블 밀도 최적화",
+      "분위기 조명",
+      "체류 경험",
+    ],
+    color_palette: [
+      "#EADBC8",
+      "#C7A17A",
+      "#8B5E3C",
+      "#2F2A25",
+      "#F7F3EE",
+    ],
+    recommended_zones: [
+      "입구 / 대기존",
+      "메인 홀 좌석",
+      "프라이빗 좌석",
+      "주방",
+      "서비스 / 수납존",
+    ],
+    styling_points: [
+      "입구에서 내부 분위기가 자연스럽게 느껴지도록 구성합니다.",
+      "테이블 간 간격을 안정적으로 유지합니다.",
+      "재료감이 드러나는 조명과 마감으로 식사 경험을 강화합니다.",
+    ],
+  };
+}
+
+function buildFitnessConcept(project: any) {
+  const flowNotes = getAnalysisFlowNotes(project);
+  const risks = getAnalysisRisks(project);
+
+  const summaryParts: string[] = [
+    "피트니스 공간은 활력과 동선 분리가 중요합니다.",
+    "체크인부터 유산소-웨이트-스트레칭까지 흐름이 자연스럽고 에너지감이 살아나는 방향으로 제안합니다.",
+  ];
+
+  if (flowNotes.length > 0) {
+    summaryParts.push(`동선 포인트: ${flowNotes.slice(0, 2).join(", ")}`);
+  }
+
+  if (risks.length > 0) {
+    summaryParts.push(`주의 포인트: ${risks.slice(0, 2).join(", ")}`);
+  }
+
+  return {
+    source: "mock-concept-generator-mvp",
+    concept_name: "Active Flow Fitness",
+    title: "Active Flow Fitness",
+    name: "Active Flow Fitness",
+    mood: "에너지가 느껴지는 다이내믹 피트니스 무드",
+    summary: summaryParts.join(" "),
+    keywords: [
+      "활력 있는 분위기",
+      "기능별 존 분리",
+      "직관적 동선",
+      "밝은 조명",
+      "청결한 인상",
+    ],
+    color_palette: [
+      "#EAF4F4",
+      "#BEE3DB",
+      "#5C7AEA",
+      "#2D3748",
+      "#F7FAFC",
+    ],
     recommended_zones: [
       "리셉션",
       "유산소존",
       "웨이트존",
       "스트레칭존",
-      "상담 / PT 존",
+      "락커 / 샤워존",
     ],
-    color_palette: [
-      { label: "Graphite", hex: "#1F2937" },
-      { label: "Concrete Gray", hex: "#6B7280" },
-      { label: "Neon Lime", hex: "#B7FF3C" },
-      { label: "Deep Blue", hex: "#1D4ED8" },
-      { label: "White", hex: "#F8FAFC" },
+    styling_points: [
+      "고객 진입 후 체크인 위치를 쉽게 인지할 수 있어야 합니다.",
+      "기구별 간섭이 적도록 운동 구역을 분리합니다.",
+      "활동성을 살리는 색 대비를 제한적으로 사용합니다.",
     ],
-    spatial_direction: [
-      "입구에서 리셉션 인지가 쉽도록 배치합니다.",
-      "고중량 웨이트존은 벽면 또는 코너 중심으로 안정적으로 구성합니다.",
-      "초보 사용자도 쉽게 이해할 수 있는 순환 동선을 만듭니다.",
-    ],
-    materials: [
-      "고내구성 바닥재",
-      "러버/비닐 계열 운동 바닥 마감",
-      "메탈과 매트 질감 마감 포인트",
-    ],
-    lighting_direction: [
-      "메인 운동존은 밝고 선명한 조명",
-      "스트레칭존은 상대적으로 부드러운 조명",
-      "브랜드 포인트 컬러를 강조하는 라인 조명",
-    ],
-    furniture_direction: [
-      "리셉션은 직관적인 카운터 중심 구성",
-      "운동 기구 배치는 안전 간격 우선",
-      "거울과 보조 수납은 동선 방해가 적은 벽면 위주 배치",
-    ],
-    project_context: {
-      project_name: project.project_name,
-      area: project.area,
-      parsed_area: areaValue,
-      headcount,
-      shape: project.shape,
-      input_mode: project.input_mode,
-      input_mode_label: inputModeLabel,
-      file_name: project.file_name,
-      notes: project.notes,
-    },
-    generated_at: new Date().toISOString(),
-    source: "mock-concept-generator-mvp",
   };
 }
 
-function buildRetailConcept(project: OfficeProjectRow) {
-  const { areaValue, headcount, notesText, spaceTypeLabel, inputModeLabel } =
-    buildSharedMeta(project);
+function buildRetailConcept(project: any) {
+  const flowNotes = getAnalysisFlowNotes(project);
+  const risks = getAnalysisRisks(project);
 
-  const baseMood = pickMoodByNotes(notesText, "브랜드 인상이 선명한 리테일 무드");
-  const conceptName =
-    areaValue && areaValue >= 120 ? "Brand Focus Retail" : "Compact Discovery Store";
+  const summaryParts: string[] = [
+    "리테일 공간은 주목도와 회유 동선이 중요합니다.",
+    "전면 주목 진열과 중앙 체류 포인트를 두고 결제/재고 구역은 운영 효율 중심으로 정리하는 방향을 제안합니다.",
+  ];
+
+  if (flowNotes.length > 0) {
+    summaryParts.push(`동선 포인트: ${flowNotes.slice(0, 2).join(", ")}`);
+  }
+
+  if (risks.length > 0) {
+    summaryParts.push(`주의 포인트: ${risks.slice(0, 2).join(", ")}`);
+  }
 
   return {
-    concept_name: conceptName,
-    title: conceptName,
-    summary:
-      `${spaceTypeLabel}는 입구 첫인상과 상품 탐색 흐름이 중요합니다. ` +
-      `메인 진열 존을 중심으로 시선 유도 포인트를 만들고, ` +
-      `계산대 접근성과 체류 흐름을 함께 고려하는 방향의 컨셉을 제안합니다.`,
-    concept_summary:
-      "브랜드 경험과 상품 노출 효율을 함께 높이는 리테일 컨셉입니다.",
-    mood: baseMood,
-    mood_line: baseMood,
-    keywords: normalizeStringArray([
-      "브랜드 시인성",
-      "상품 탐색 흐름",
-      "입구 첫인상",
-      "프로모션 강조",
-      "계산대 접근성",
-    ]),
+    source: "mock-concept-generator-mvp",
+    concept_name: "Curated Retail Journey",
+    title: "Curated Retail Journey",
+    name: "Curated Retail Journey",
+    mood: "정돈되고 감각적인 큐레이션 리테일 무드",
+    summary: summaryParts.join(" "),
+    keywords: [
+      "주목 진열",
+      "회유 동선",
+      "브랜드 인상 강화",
+      "포인트 조명",
+      "정리된 결제존",
+    ],
+    color_palette: [
+      "#F6F1EB",
+      "#D6CCC2",
+      "#A68A64",
+      "#3C3C3C",
+      "#FFFFFF",
+    ],
     recommended_zones: [
+      "전면 디스플레이",
       "메인 진열존",
-      "프로모션존",
-      "보조 진열존",
-      "계산대",
-      "재고 / 수납",
+      "체험 / 포인트존",
+      "결제대",
+      "재고 / 창고존",
     ],
-    color_palette: [
-      { label: "Soft White", hex: "#F8FAFC" },
-      { label: "Stone Gray", hex: "#94A3B8" },
-      { label: "Brand Black", hex: "#111827" },
-      { label: "Accent Beige", hex: "#D6C3A1" },
-      { label: "Muted Green", hex: "#9DB5A3" },
+    styling_points: [
+      "입구에서 핵심 상품이 보이도록 전면 시야를 정리합니다.",
+      "고객 동선을 자연스럽게 유도하는 진열 리듬을 만듭니다.",
+      "브랜드 톤을 반영한 포인트 소재를 적용합니다.",
     ],
-    spatial_direction: [
-      "입구에서 메인 진열 포인트가 보이도록 시야를 설계합니다.",
-      "주력 상품은 메인 동선 위에 배치합니다.",
-      "계산대는 출구와 가까우면서도 전체 시야 확보가 가능한 위치가 좋습니다.",
-    ],
-    materials: [
-      "브랜드 아이덴티티를 보여주는 포인트 마감",
-      "상품이 돋보이는 뉴트럴 배경 소재",
-      "관리 용이한 진열 선반/랙 시스템",
-    ],
-    lighting_direction: [
-      "상품 강조용 스팟 조명",
-      "입구 및 메인 진열 존의 시인성 강화 조명",
-      "계산대는 밝고 명확한 조도 확보",
-    ],
-    furniture_direction: [
-      "주력 상품용 낮은 진열과 보조 랙을 혼합",
-      "시선 차단이 심하지 않은 중앙 진열 구성",
-      "대기줄이 동선을 막지 않는 계산대 설계",
-    ],
-    project_context: {
-      project_name: project.project_name,
-      area: project.area,
-      parsed_area: areaValue,
-      headcount,
-      shape: project.shape,
-      input_mode: project.input_mode,
-      input_mode_label: inputModeLabel,
-      file_name: project.file_name,
-      notes: project.notes,
-    },
-    generated_at: new Date().toISOString(),
-    source: "mock-concept-generator-mvp",
   };
 }
 
-function buildOtherConcept(project: OfficeProjectRow) {
-  const { areaValue, headcount, notesText, spaceTypeLabel, inputModeLabel } =
-    buildSharedMeta(project);
-
-  const baseMood = pickMoodByNotes(notesText, "기능과 분위기가 균형 잡힌 범용 공간 무드");
-  const conceptName = "Flexible Signature Space";
+function buildOtherConcept(project: any) {
+  const requirements = getRequirements(project);
+  const requirementKeywords = toStringArray(
+    requirements.keywords ?? requirements.tags ?? requirements.focus_points
+  );
 
   return {
-    concept_name: conceptName,
-    title: conceptName,
-    summary:
-      `${spaceTypeLabel}의 핵심 기능을 중심으로 메인 공간과 보조 기능 공간을 정리하고, ` +
-      `입구에서 주요 사용 영역이 자연스럽게 인지되는 방향의 범용 컨셉을 제안합니다.`,
-    concept_summary:
-      "다양한 용도에 대응 가능한 유연하고 정돈된 공간 컨셉입니다.",
-    mood: baseMood,
-    mood_line: baseMood,
-    keywords: normalizeStringArray([
-      "유연한 운영",
-      "명확한 메인 존",
-      "정돈된 동선",
-      "브랜드 포인트",
-      headcount > 0 ? `이용 인원 ${headcount}명 대응` : "",
-    ]),
-    recommended_zones: [
-      "메인 사용 구역",
-      "보조 기능 구역",
-      "응대 / 전면 구역",
-      "수납 / 지원 구역",
-    ],
-    color_palette: [
-      { label: "Ivory", hex: "#F8F5F0" },
-      { label: "Taupe", hex: "#B8A89A" },
-      { label: "Slate", hex: "#64748B" },
-      { label: "Forest Accent", hex: "#6E8B74" },
-      { label: "Charcoal", hex: "#334155" },
-    ],
-    spatial_direction: [
-      "가장 중요한 기능을 메인 존으로 명확히 설정합니다.",
-      "보조 기능은 후면 또는 측면에 정리합니다.",
-      "입구에서 주요 활동이 인지되도록 시선 흐름을 만듭니다.",
-    ],
-    materials: [
-      "뉴트럴 톤 기반 마감",
-      "따뜻한 우드 또는 패브릭 포인트",
-      "관리 쉬운 범용 바닥재",
-    ],
-    lighting_direction: [
-      "메인 구역은 밝고 균일한 조명",
-      "포인트 존은 강조 조명으로 구분",
-      "보조 기능 공간은 실용 조명 중심",
-    ],
-    furniture_direction: [
-      "유연한 모듈형 가구 제안",
-      "메인 활동 중심의 배치",
-      "이동 동선을 방해하지 않는 보조 가구 구성",
-    ],
-    project_context: {
-      project_name: project.project_name,
-      area: project.area,
-      parsed_area: areaValue,
-      headcount,
-      shape: project.shape,
-      input_mode: project.input_mode,
-      input_mode_label: inputModeLabel,
-      file_name: project.file_name,
-      notes: project.notes,
-    },
-    generated_at: new Date().toISOString(),
     source: "mock-concept-generator-mvp",
+    concept_name: "Flexible Modern Space",
+    title: "Flexible Modern Space",
+    name: "Flexible Modern Space",
+    mood: "유연하고 정돈된 현대적 공간 무드",
+    summary:
+      "공간 유형 정보가 제한적이어서 범용적으로 적용 가능한 현대적이고 유연한 컨셉으로 제안합니다.",
+    keywords:
+      requirementKeywords.length > 0
+        ? requirementKeywords.slice(0, 5)
+        : ["유연한 활용", "정돈된 인상", "기본 동선 최적화", "밝은 개방감"],
+    color_palette: ["#F3F4F6", "#D1D5DB", "#9CA3AF", "#4B5563", "#FFFFFF"],
+    recommended_zones: ["메인 공간", "보조 공간", "수납존"],
+    styling_points: [
+      "과도한 장식보다 활용성과 정돈감을 우선합니다.",
+      "기본 동선이 막히지 않도록 중심 공간을 비워둡니다.",
+      "중립적인 톤으로 시작해 포인트 요소를 추가합니다.",
+    ],
   };
 }
 
-function buildConcept(project: OfficeProjectRow) {
-  switch (project.space_type) {
-    case "office":
-      return buildOfficeConcept(project);
+function buildConcept(project: any) {
+  const type = getSpaceTypeKey(project?.space_type);
+
+  switch (type) {
     case "cafe":
       return buildCafeConcept(project);
+    case "office":
+      return buildOfficeConcept(project);
     case "restaurant":
       return buildRestaurantConcept(project);
     case "fitness":
@@ -640,44 +436,41 @@ function buildConcept(project: OfficeProjectRow) {
 }
 
 export async function POST(request: NextRequest) {
-  let projectId: number | null = null;
+  let projectId: string | null = null;
 
   try {
-    const body = await request.json();
-    projectId = Number(body?.projectId);
+    const url = new URL(request.url);
 
-    if (!projectId || Number.isNaN(projectId)) {
+    let body: any = {};
+    try {
+      const rawText = await request.text();
+      body = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      body = {};
+    }
+
+    projectId =
+      url.searchParams.get("projectId") ||
+      url.searchParams.get("id") ||
+      body?.projectId ||
+      body?.id;
+
+    if (!projectId || typeof projectId !== "string") {
       return NextResponse.json(
-        { error: "올바른 projectId가 필요합니다." },
+        { error: "projectId가 필요합니다." },
         { status: 400 }
       );
     }
 
-    const { data: project, error: fetchError } = await supabase
+    const { data: project, error: projectError } = await supabase
       .from("office_projects")
-      .select(
-        `
-        id,
-        project_name,
-        area,
-        headcount,
-        shape,
-        notes,
-        space_type,
-        space_type_detail,
-        input_mode,
-        file_url,
-        file_name,
-        requirements_json,
-        analysis_json
-      `
-      )
+      .select("*")
       .eq("id", projectId)
       .single();
 
-    if (fetchError || !project) {
+    if (projectError || !project) {
       return NextResponse.json(
-        { error: fetchError?.message || "프로젝트를 찾을 수 없습니다." },
+        { error: "프로젝트를 찾을 수 없습니다." },
         { status: 404 }
       );
     }
@@ -686,53 +479,62 @@ export async function POST(request: NextRequest) {
       .from("office_projects")
       .update({
         concept_status: "processing",
-        updated_at: new Date().toISOString(),
       })
       .eq("id", projectId);
 
     if (processingError) {
       return NextResponse.json(
-        { error: processingError.message || "컨셉 상태 업데이트에 실패했습니다." },
+        { error: "concept_status를 processing으로 업데이트하지 못했습니다." },
         { status: 500 }
       );
     }
 
-    const concept = buildConcept(project as OfficeProjectRow);
+    const concept = buildConcept(project);
 
     const { error: updateError } = await supabase
       .from("office_projects")
       .update({
         concept_status: "completed",
         design_concept_json: concept,
-        updated_at: new Date().toISOString(),
       })
       .eq("id", projectId);
 
     if (updateError) {
+      await supabase
+        .from("office_projects")
+        .update({
+          concept_status: "failed",
+        })
+        .eq("id", projectId);
+
       return NextResponse.json(
-        { error: updateError.message || "컨셉 결과 저장에 실패했습니다." },
+        { error: "design_concept_json 저장에 실패했습니다." },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      message: "AI 컨셉 추천이 완료되었습니다.",
+      projectId,
       concept,
     });
-  } catch (error: any) {
+  } catch (error) {
     if (projectId) {
       await supabase
         .from("office_projects")
         .update({
           concept_status: "failed",
-          updated_at: new Date().toISOString(),
         })
         .eq("id", projectId);
     }
 
     return NextResponse.json(
-      { error: error?.message || "AI 컨셉 추천 중 오류가 발생했습니다." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "컨셉 추천 중 오류가 발생했습니다.",
+      },
       { status: 500 }
     );
   }
